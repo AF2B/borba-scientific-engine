@@ -17,6 +17,9 @@ ENV_FILE         := .env
 ENV_EXAMPLE      := .env.example
 FORMAT_PATHS     := Package.swift Sources Tests
 
+# The integration tests create and drop their own databases on this server, so it needs a role that may do so.
+TEST_DATABASE_URL ?= $(DATABASE_URL)
+
 # --- Build metadata baked into the container image -----------------------------------------------------
 APP_VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo 0.0.0-dev)
 APP_COMMIT     ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
@@ -71,11 +74,15 @@ db-up: $(ENV_FILE) ## Start PostgreSQL only and wait until it is healthy
 ##@ Quality
 
 .PHONY: test
-test: test-unit ## Run every test suite
+test: test-unit test-integration ## Run every test suite
 
 .PHONY: test-unit
 test-unit: ## Run the unit tests (no external services required)
 	$(SWIFT) test --filter UnitTests
+
+.PHONY: test-integration
+test-integration: db-up ## Run the integration tests against a real PostgreSQL (starts it when needed)
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(SWIFT) test --filter IntegrationTests
 
 .PHONY: lint
 lint: ## Run SwiftLint in strict mode
