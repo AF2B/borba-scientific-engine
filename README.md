@@ -32,6 +32,26 @@ HTTP → Handlers → Business → Ports → Adapters → Infrastructure
 Dependencies only point inward and the boundary is enforced by the SwiftPM target graph. See
 [ADR-001](Documentation/ADR/ADR-001-application-architecture.md).
 
+## Calculation modules
+
+The engine ships nine modules, each a self-contained slice with its own domain types, validation, errors and tests.
+Every operation carries worked examples that double as executable tests.
+
+| Module           | Covers                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| `arithmetic`     | Operators, remainders, powers, aggregates, gcd/lcm, factorial, decimal rounding           |
+| `percentage`     | Shares, relative change, markups, discounts, reverse percentages                          |
+| `statistics`     | Mean, median, mode, variance, percentiles, quartiles, correlation, linear regression      |
+| `financial`      | Interest, time value of money, loans and amortization, NPV, IRR, CAGR, ROI                |
+| `scientific`     | Trigonometry, hyperbolics, logarithms, roots, combinatorics, CODATA 2022 constants        |
+| `conversion`     | Length, mass, temperature, time, area, volume, speed, pressure, energy, power, data, angle |
+| `expression`     | Infix expressions with variables, constants and functions                                 |
+| `numerical`      | Integration, differentiation and root finding for expressions                             |
+| `linear_algebra` | Vector and matrix arithmetic, determinants, inverses, linear systems                      |
+
+See [ADR-002](Documentation/ADR/ADR-002-domain-oriented-module-structure.md) for the design and
+[Adding a calculation module](Documentation/Development/adding-a-calculation-module.md) to extend it.
+
 ## Getting started
 
 ### Prerequisites
