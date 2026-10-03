@@ -7,7 +7,7 @@ extension ModuleRegistry {
     /// - Returns: A registry containing all built-in modules.
     public static func standard() -> ModuleRegistry {
         do {
-            return try ModuleRegistry(modules: [])
+            return try ModuleRegistry(modules: [ArithmeticModule()])
         } catch {
             preconditionFailure("The built-in calculation modules are inconsistent: \(error)")
         }
