@@ -33,7 +33,15 @@ struct ArchitectureTests {
     /// The modules a file imports, whatever access modifier or attribute precedes the import.
     private static func importedModules(in file: URL) throws -> Set<String> {
         let contents = try String(contentsOf: file, encoding: .utf8)
-        let pattern = /^\s*(?:@\w+\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?(\w+)/
+        let pattern =
+            #/
+            ^\s*
+            (?:@\w+\s+)*                                                       # attributes such as @testable
+            (?:(?:public|package|internal|fileprivate|private)\s+)?            # access modifier
+            import\s+
+            (?:(?:struct|class|enum|protocol|func|var|let|typealias)\s+)?      # scoped import
+            (\w+)                                                              # the module
+            /#
 
         return Set(
             contents.split(separator: "\n").compactMap { line in
@@ -61,7 +69,10 @@ struct ArchitectureTests {
             at: modules,
             includingPropertiesForKeys: [URLResourceKey.isDirectoryKey]
         )
-        let folders = entries.filter { (try? $0.resourceValues(forKeys: [URLResourceKey.isDirectoryKey]).isDirectory) == true }
+        let folders = entries.filter { entry in
+            let resourceValues = try? entry.resourceValues(forKeys: [URLResourceKey.isDirectoryKey])
+            return resourceValues?.isDirectory == true
+        }
 
         #expect(folders.count >= 9)
         for folder in folders {
@@ -76,7 +87,9 @@ struct ArchitectureTests {
 
     @Test("the domain has no catch-all helper files")
     func noDumpingGrounds() throws {
-        let forbiddenNames: Set<String> = ["Utils.swift", "Helpers.swift", "Manager.swift", "Common.swift", "Misc.swift"]
+        let forbiddenNames: Set<String> = [
+            "Utils.swift", "Helpers.swift", "Manager.swift", "Common.swift", "Misc.swift",
+        ]
 
         for file in try Self.swiftFiles(under: "Sources") {
             #expect(!forbiddenNames.contains(file.lastPathComponent), "\(file.path) is a dumping ground")
