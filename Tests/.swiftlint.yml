@@ -1,0 +1,6 @@
+# Test oracles are literal by nature: `#expect(sum == 5)` is the specification, not a magic number.
+disabled_rules:
+  - no_magic_numbers
+  - function_body_length
+  - type_body_length
+  - file_length
