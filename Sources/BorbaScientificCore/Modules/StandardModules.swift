@@ -20,6 +20,7 @@ extension ModuleRegistry {
                 ScientificModule(),
                 ConversionModule(),
                 ExpressionModule(compiler: compiler),
+                NumericalModule(compiler: compiler),
             ])
         } catch {
             preconditionFailure("The built-in calculation modules are inconsistent: \(error)")
