@@ -21,6 +21,7 @@ extension ModuleRegistry {
                 ConversionModule(),
                 ExpressionModule(compiler: compiler),
                 NumericalModule(compiler: compiler),
+                LinearAlgebraModule(),
             ])
         } catch {
             preconditionFailure("The built-in calculation modules are inconsistent: \(error)")
