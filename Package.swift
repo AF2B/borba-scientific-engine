@@ -99,6 +99,21 @@ let package = Package(
             path: "Tests/IntegrationSupport",
             swiftSettings: strictSwiftSettings
         ),
+        .target(
+            name: "HTTPSupport",
+            dependencies: [
+                "BorbaScientificCore",
+                "BorbaScientificEngine",
+                "TestSupport",
+                .product(name: "InMemoryLogging", package: "swift-log"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "VaporTesting", package: "vapor"),
+            ],
+            path: "Tests/HTTPSupport",
+            swiftSettings: strictSwiftSettings
+        ),
         .testTarget(
             name: "UnitTests",
             dependencies: [
@@ -112,11 +127,28 @@ let package = Package(
             swiftSettings: strictSwiftSettings
         ),
         .testTarget(
+            name: "ContractTests",
+            dependencies: [
+                "BorbaScientificCore",
+                "BorbaScientificEngine",
+                "HTTPSupport",
+                "TestSupport",
+                .product(name: "InMemoryLogging", package: "swift-log"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "VaporTesting", package: "vapor"),
+            ],
+            path: "Tests/Contract",
+            swiftSettings: strictSwiftSettings
+        ),
+        .testTarget(
             name: "IntegrationTests",
             dependencies: [
                 "BorbaScientificCore",
                 "BorbaScientificEngine",
                 "BorbaScientificPersistence",
+                "HTTPSupport",
                 "IntegrationSupport",
                 "TestSupport",
                 .product(name: "InMemoryLogging", package: "swift-log"),
