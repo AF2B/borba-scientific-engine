@@ -20,6 +20,9 @@ let package = Package(
     platforms: [
         .macOS(.v14)
     ],
+    products: [
+        .executable(name: "borba-scientific-engine", targets: ["Run"])
+    ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
         .package(url: "https://github.com/vapor/vapor.git", from: "4.122.2"),
@@ -31,6 +34,11 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Vapor", package: "vapor"),
             ],
+            swiftSettings: strictSwiftSettings
+        ),
+        .executableTarget(
+            name: "Run",
+            dependencies: ["BorbaScientificEngine"],
             swiftSettings: strictSwiftSettings
         ),
         .testTarget(
