@@ -112,3 +112,13 @@ public struct TraceContext: Sendable, Equatable, Hashable, Codable {
         try await $current.withValue(context, operation: operation)
     }
 }
+
+/// The metadata keys under which the trace identifiers appear in structured logs, so every layer writes them the
+/// same way and a log search by `request_id` finds lines from the HTTP layer down to the database.
+public enum TraceMetadataKey {
+    /// Key of the request identifier.
+    public static let requestID = "request_id"
+
+    /// Key of the correlation identifier.
+    public static let correlationID = "correlation_id"
+}
