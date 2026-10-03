@@ -8,7 +8,12 @@ extension ModuleRegistry {
     public static func standard() -> ModuleRegistry {
         do {
             return try ModuleRegistry(modules: [
-                ArithmeticModule(), PercentageModule(), StatisticsModule(), FinancialModule(), ScientificModule(),
+                ArithmeticModule(),
+                PercentageModule(),
+                StatisticsModule(),
+                FinancialModule(),
+                ScientificModule(),
+                ConversionModule(),
             ])
         } catch {
             preconditionFailure("The built-in calculation modules are inconsistent: \(error)")
