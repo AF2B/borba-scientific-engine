@@ -1,0 +1,36 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+.index-build/
+/Packages
+Package.pins
+
+# Xcode
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# Environment and secrets: only the documented example is tracked
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.keystore
+
+# Generated reports and local artifacts (test results, coverage, benchmarks)
+/.artifacts/
+
+# Local databases and Docker overrides
+*.sqlite
+*.sqlite3
+*.db
+docker-compose.override.yml
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
