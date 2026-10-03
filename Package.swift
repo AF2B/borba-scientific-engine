@@ -29,6 +29,10 @@ let package = Package(
     ],
     targets: [
         .target(
+            name: "BorbaScientificCore",
+            swiftSettings: strictSwiftSettings
+        ),
+        .target(
             name: "BorbaScientificEngine",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
@@ -41,10 +45,18 @@ let package = Package(
             dependencies: ["BorbaScientificEngine"],
             swiftSettings: strictSwiftSettings
         ),
+        .target(
+            name: "TestSupport",
+            dependencies: ["BorbaScientificCore"],
+            path: "Tests/Support",
+            swiftSettings: strictSwiftSettings
+        ),
         .testTarget(
             name: "UnitTests",
             dependencies: [
+                "BorbaScientificCore",
                 "BorbaScientificEngine",
+                "TestSupport",
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Tests/Unit",
