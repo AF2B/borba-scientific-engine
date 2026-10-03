@@ -88,6 +88,9 @@ public enum PostgresTestDatabase {
     /// The environment variable that points at the PostgreSQL server used by the integration tests.
     public static let environmentVariable = "TEST_DATABASE_URL"
 
+    /// Announced to the server by every test connection, so test sessions are recognisable in `pg_stat_activity`.
+    public static let applicationName = "borba-scientific-engine-tests"
+
     private static let maintenanceDatabase = "postgres"
     private static let databaseNamePrefix = "bse_test_"
 
@@ -245,6 +248,7 @@ public enum PostgresTestDatabase {
         let databases = Databases(threadPool: NIOThreadPool.singleton, on: group)
         let settings = PostgresSettings(
             url: url,
+            applicationName: applicationName,
             maximumConnectionsPerEventLoop: maximumConnectionsPerEventLoop,
             connectionPoolTimeout: connectionPoolTimeout,
             statementTimeout: .seconds(30)

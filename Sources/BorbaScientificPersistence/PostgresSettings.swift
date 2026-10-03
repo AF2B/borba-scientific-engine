@@ -6,9 +6,6 @@ import PostgresKit
 
 /// How to connect to PostgreSQL.
 public struct PostgresSettings: Sendable, Equatable {
-    /// Reported to the server so database operators can tell this application's sessions apart.
-    public static let applicationName = "borba-scientific-engine"
-
     private static let applicationNameParameter = "application_name"
     private static let statementTimeoutParameter = "statement_timeout"
     private static let millisecondsPerSecond: Int64 = 1_000
@@ -16,6 +13,9 @@ public struct PostgresSettings: Sendable, Equatable {
 
     /// The connection URL, which embeds the credentials.
     public let url: String
+
+    /// Reported to the server on every connection, so database operators can tell this application's sessions apart.
+    public let applicationName: String
 
     /// Pool size per event loop. The total pool size is this value times the number of event loops.
     public let maximumConnectionsPerEventLoop: Int
@@ -30,16 +30,19 @@ public struct PostgresSettings: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - url: The connection URL, such as `postgres://user:password@host:5432/database`.
+    ///   - applicationName: The name the server shows for this application's sessions in `pg_stat_activity`.
     ///   - maximumConnectionsPerEventLoop: Pool size per event loop.
     ///   - connectionPoolTimeout: Longest a call waits for a free pooled connection.
     ///   - statementTimeout: Longest the server lets a single statement run.
     public init(
         url: String,
+        applicationName: String,
         maximumConnectionsPerEventLoop: Int,
         connectionPoolTimeout: Duration,
         statementTimeout: Duration
     ) {
         self.url = url
+        self.applicationName = applicationName
         self.maximumConnectionsPerEventLoop = maximumConnectionsPerEventLoop
         self.connectionPoolTimeout = connectionPoolTimeout
         self.statementTimeout = statementTimeout
@@ -62,7 +65,7 @@ public struct PostgresSettings: Sendable, Equatable {
         }
 
         configuration.coreConfiguration.options.additionalStartupParameters += [
-            (Self.applicationNameParameter, Self.applicationName),
+            (Self.applicationNameParameter, applicationName),
             (Self.statementTimeoutParameter, String(milliseconds(of: statementTimeout))),
         ]
 

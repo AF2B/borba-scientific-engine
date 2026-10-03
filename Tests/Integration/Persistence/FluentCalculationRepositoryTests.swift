@@ -120,6 +120,7 @@ struct FluentCalculationRepositoryTests {
         try await PostgresTestDatabase.withEmptyDatabase { database in
             let settings = PostgresSettings(
                 url: database.url,
+                applicationName: PostgresTestDatabase.applicationName,
                 maximumConnectionsPerEventLoop: 1,
                 connectionPoolTimeout: .seconds(5),
                 statementTimeout: .milliseconds(200)
