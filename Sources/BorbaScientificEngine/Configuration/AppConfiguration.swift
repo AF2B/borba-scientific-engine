@@ -55,6 +55,21 @@ public struct DatabaseSettings: Sendable, Equatable {
 
     /// Longest a request waits for a free pooled connection before failing fast.
     public let connectionPoolTimeout: Duration
+
+    /// Longest the server lets a single statement run before it cancels it.
+    public let statementTimeout: Duration
+}
+
+/// Limits of the calculation endpoints.
+public struct CalculationSettings: Sendable, Equatable {
+    /// Time budget of a single calculation; one that exceeds it is cancelled and recorded as failed.
+    public let timeout: Duration
+
+    /// Most calculations a batch request may contain.
+    public let maximumBatchSize: Int
+
+    /// How many calculations of one batch run at the same time.
+    public let batchConcurrency: Int
 }
 
 /// Sentry error-reporting settings.
@@ -90,6 +105,9 @@ public struct AppConfiguration: Sendable, Equatable {
 
     /// Database settings.
     public let database: DatabaseSettings
+
+    /// Calculation limits.
+    public let calculation: CalculationSettings
 
     /// Error-reporting settings.
     public let sentry: SentrySettings

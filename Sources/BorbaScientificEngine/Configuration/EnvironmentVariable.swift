@@ -16,6 +16,10 @@ public enum EnvironmentVariable: String, Sendable, CaseIterable {
     case databaseURL = "DATABASE_URL"
     case databaseMaximumConnectionsPerEventLoop = "DATABASE_MAX_CONNECTIONS_PER_EVENT_LOOP"
     case databasePoolTimeoutMilliseconds = "DATABASE_POOL_TIMEOUT_MS"
+    case databaseStatementTimeoutMilliseconds = "DATABASE_STATEMENT_TIMEOUT_MS"
+    case calculationTimeoutMilliseconds = "CALCULATION_TIMEOUT_MS"
+    case batchMaximumSize = "BATCH_MAX_SIZE"
+    case batchConcurrency = "BATCH_CONCURRENCY"
     case sentryDSN = "SENTRY_DSN"
     case sentrySampleRate = "SENTRY_SAMPLE_RATE"
 }

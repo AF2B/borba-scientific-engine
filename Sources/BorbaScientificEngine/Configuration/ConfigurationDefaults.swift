@@ -17,6 +17,10 @@ enum ConfigurationDefaults {
     static let shutdownTimeoutSeconds = 15
     static let databaseMaximumConnectionsPerEventLoop = 2
     static let databasePoolTimeoutMilliseconds = 5_000
+    static let databaseStatementTimeoutMilliseconds = 5_000
+    static let calculationTimeoutMilliseconds = 2_000
+    static let batchMaximumSize = 100
+    static let batchConcurrency = 8
     static let sentrySampleRate = 1.0
 }
 
@@ -29,6 +33,10 @@ enum ConfigurationLimits {
     static let shutdownTimeoutSeconds = 0...300
     static let databaseMaximumConnectionsPerEventLoop = 1...32
     static let databasePoolTimeoutMilliseconds = 100...60_000
+    static let databaseStatementTimeoutMilliseconds = 100...300_000
+    static let calculationTimeoutMilliseconds = 10...60_000
+    static let batchMaximumSize = 1...1_000
+    static let batchConcurrency = 1...64
     static let sentrySampleRate = 0.0...1.0
 }
 

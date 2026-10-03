@@ -34,6 +34,18 @@ struct ConfigurationLoaderTests {
         #expect(configuration.sentry.isEnabled == false)
     }
 
+    @Test("applies calculation and statement limits by default")
+    func calculationDefaults() throws {
+        let configuration = try ConfigurationLoader.load(from: ConfigurationFixture.minimal)
+
+        let expectedStatementTimeout = Duration.milliseconds(ConfigurationDefaults.databaseStatementTimeoutMilliseconds)
+        let expectedCalculationTimeout = Duration.milliseconds(ConfigurationDefaults.calculationTimeoutMilliseconds)
+        #expect(configuration.database.statementTimeout == expectedStatementTimeout)
+        #expect(configuration.calculation.timeout == expectedCalculationTimeout)
+        #expect(configuration.calculation.maximumBatchSize == ConfigurationDefaults.batchMaximumSize)
+        #expect(configuration.calculation.batchConcurrency == ConfigurationDefaults.batchConcurrency)
+    }
+
     @Test(
         "applies deployment defaults in deployed environments",
         arguments: [AppEnvironment.staging, AppEnvironment.production]
@@ -68,6 +80,10 @@ struct ConfigurationLoaderTests {
             .logFormat: "json",
             .databaseMaximumConnectionsPerEventLoop: "4",
             .databasePoolTimeoutMilliseconds: "750",
+            .databaseStatementTimeoutMilliseconds: "1500",
+            .calculationTimeoutMilliseconds: "250",
+            .batchMaximumSize: "20",
+            .batchConcurrency: "3",
             .sentryDSN: "https://public@sentry.example.com/1",
             .sentrySampleRate: "0.25",
         ])
@@ -85,6 +101,10 @@ struct ConfigurationLoaderTests {
         #expect(configuration.logging.format == .json)
         #expect(configuration.database.maximumConnectionsPerEventLoop == 4)
         #expect(configuration.database.connectionPoolTimeout == .milliseconds(750))
+        #expect(configuration.database.statementTimeout == .milliseconds(1_500))
+        #expect(configuration.calculation.timeout == .milliseconds(250))
+        #expect(configuration.calculation.maximumBatchSize == 20)
+        #expect(configuration.calculation.batchConcurrency == 3)
         #expect(configuration.sentry.isEnabled)
         #expect(configuration.sentry.sampleRate == 0.25)
     }
@@ -128,6 +148,13 @@ struct ConfigurationLoaderTests {
             (.databaseURL, "not a url"),
             (.databaseMaximumConnectionsPerEventLoop, "0"),
             (.databasePoolTimeoutMilliseconds, "5"),
+            (.databaseStatementTimeoutMilliseconds, "5"),
+            (.calculationTimeoutMilliseconds, "5"),
+            (.calculationTimeoutMilliseconds, "slow"),
+            (.batchMaximumSize, "0"),
+            (.batchMaximumSize, "1001"),
+            (.batchConcurrency, "0"),
+            (.batchConcurrency, "65"),
             (.sentrySampleRate, "1.5"),
         ]
     )

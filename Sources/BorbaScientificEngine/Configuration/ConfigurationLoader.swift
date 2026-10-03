@@ -22,6 +22,7 @@ public enum ConfigurationLoader {
             http: readHTTPSettings(from: &reader, defaults: defaults),
             logging: readLoggingSettings(from: &reader, defaults: defaults),
             database: readDatabaseSettings(from: &reader),
+            calculation: readCalculationSettings(from: &reader),
             sentry: readSentrySettings(from: &reader)
         )
 
@@ -101,6 +102,11 @@ public enum ConfigurationLoader {
             default: ConfigurationDefaults.databasePoolTimeoutMilliseconds,
             within: ConfigurationLimits.databasePoolTimeoutMilliseconds
         )
+        let statementTimeoutMilliseconds = reader.integer(
+            .databaseStatementTimeoutMilliseconds,
+            default: ConfigurationDefaults.databaseStatementTimeoutMilliseconds,
+            within: ConfigurationLimits.databaseStatementTimeoutMilliseconds
+        )
 
         return DatabaseSettings(
             url: readDatabaseURL(from: &reader),
@@ -109,7 +115,8 @@ public enum ConfigurationLoader {
                 default: ConfigurationDefaults.databaseMaximumConnectionsPerEventLoop,
                 within: ConfigurationLimits.databaseMaximumConnectionsPerEventLoop
             ),
-            connectionPoolTimeout: .milliseconds(poolTimeoutMilliseconds)
+            connectionPoolTimeout: .milliseconds(poolTimeoutMilliseconds),
+            statementTimeout: .milliseconds(statementTimeoutMilliseconds)
         )
     }
 
@@ -136,6 +143,32 @@ public enum ConfigurationLoader {
         }
 
         return Secret(raw)
+    }
+
+    /// Reads the calculation limits.
+    ///
+    /// - Parameter reader: Source of the variables; records issues for invalid values.
+    /// - Returns: The calculation settings.
+    private static func readCalculationSettings(from reader: inout EnvironmentReader) -> CalculationSettings {
+        let timeoutMilliseconds = reader.integer(
+            .calculationTimeoutMilliseconds,
+            default: ConfigurationDefaults.calculationTimeoutMilliseconds,
+            within: ConfigurationLimits.calculationTimeoutMilliseconds
+        )
+
+        return CalculationSettings(
+            timeout: .milliseconds(timeoutMilliseconds),
+            maximumBatchSize: reader.integer(
+                .batchMaximumSize,
+                default: ConfigurationDefaults.batchMaximumSize,
+                within: ConfigurationLimits.batchMaximumSize
+            ),
+            batchConcurrency: reader.integer(
+                .batchConcurrency,
+                default: ConfigurationDefaults.batchConcurrency,
+                within: ConfigurationLimits.batchConcurrency
+            )
+        )
     }
 
     /// Reads the error-reporting settings.
