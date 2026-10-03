@@ -24,9 +24,11 @@ let package = Package(
         .executable(name: "borba-scientific-engine", targets: ["Run"])
     ],
     dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "4.5.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.15.1"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.103.0"),
         .package(url: "https://github.com/vapor/async-kit.git", from: "1.22.0"),
+        .package(url: "https://github.com/vapor/fluent.git", from: "4.13.0"),
         .package(url: "https://github.com/vapor/fluent-kit.git", from: "1.57.0"),
         .package(url: "https://github.com/vapor/fluent-postgres-driver.git", from: "2.14.0"),
         .package(url: "https://github.com/vapor/postgres-kit.git", from: "2.17.0"),
@@ -60,6 +62,10 @@ let package = Package(
             dependencies: [
                 "BorbaScientificCore",
                 "BorbaScientificPersistence",
+                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Fluent", package: "fluent"),
+                .product(name: "FluentKit", package: "fluent-kit"),
+                .product(name: "FluentPostgresDriver", package: "fluent-postgres-driver"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Vapor", package: "vapor"),
             ],
@@ -100,6 +106,7 @@ let package = Package(
                 "BorbaScientificEngine",
                 "TestSupport",
                 .product(name: "Logging", package: "swift-log"),
+                .product(name: "Vapor", package: "vapor"),
             ],
             path: "Tests/Unit",
             swiftSettings: strictSwiftSettings
@@ -113,6 +120,8 @@ let package = Package(
                 "IntegrationSupport",
                 "TestSupport",
                 .product(name: "InMemoryLogging", package: "swift-log"),
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "VaporTesting", package: "vapor"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "SQLKit", package: "sql-kit"),
