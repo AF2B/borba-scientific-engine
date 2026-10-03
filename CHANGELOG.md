@@ -26,3 +26,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Architecture decision records for the module structure and the error handling strategy, and a guide to adding a
   calculation module.
 - Architecture tests that keep the domain free of framework imports.
+- PostgreSQL persistence adapter with versioned SQL migrations, check constraints, foreign keys, indexes, atomic
+  idempotency and keyset pagination.
+- Integration tests against a real PostgreSQL, one temporary database per test, sharing a repository contract suite
+  with the in-memory test double.
+- Database health probe that reports unreachable databases and pending migrations.
+- `make test-integration`, which starts PostgreSQL when needed.
+- Architecture decision record for the PostgreSQL persistence strategy.
