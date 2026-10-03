@@ -17,6 +17,80 @@ public enum FixtureOperation: String, CaseIterable {
     case notANumber = "not_a_number"
     case crash
     case spin
+    case hold
+}
+
+/// A counting gate that suspends callers until it is opened.
+public actor Gate {
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Creates a closed gate.
+    public init() {}
+
+    /// Suspends until the gate is opened; returns immediately when it already is.
+    public func wait() async {
+        guard !isOpen else {
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// Opens the gate for everyone, now and in the future.
+    public func open() {
+        isOpen = true
+        for waiter in waiters {
+            waiter.resume()
+        }
+        waiters.removeAll()
+    }
+}
+
+/// Counts how many operations run at the same time, and the most that ever did.
+public actor ConcurrencyProbe {
+    /// How many operations are running right now.
+    public private(set) var current = 0
+
+    /// The most operations that ever ran at the same time.
+    public private(set) var maximum = 0
+
+    /// Creates a probe with nothing running.
+    public init() {}
+
+    /// Records that an operation started.
+    public func enter() {
+        current += 1
+        maximum = Swift.max(maximum, current)
+    }
+
+    /// Records that an operation finished.
+    public func leave() {
+        current -= 1
+    }
+
+    /// Suspends until at least the given number of operations are running.
+    ///
+    /// - Parameter count: How many operations to wait for.
+    public func waitUntilRunning(atLeast count: Int) async {
+        while current < count {
+            await Task.yield()
+        }
+    }
+}
+
+/// What the ``FixtureOperation/hold`` operation reports to and waits on.
+public struct FixtureControls: Sendable {
+    /// Counts concurrent runs of the `hold` operation.
+    public let probe: ConcurrencyProbe
+
+    /// The `hold` operation suspends here until the gate is opened.
+    public let gate: Gate
+
+    /// Creates fresh controls.
+    public init() {
+        probe = ConcurrencyProbe()
+        gate = Gate()
+    }
 }
 
 /// An error that is not a ``CalculationFailure``, standing in for a bug inside an operation.
@@ -35,8 +109,13 @@ public struct FixtureModule: CalculationModule {
 
     /// Creates the module.
     ///
-    /// - Parameter clock: The clock the sleeping operation waits on.
-    public init(clock: any EngineClock) {
+    /// - Parameters:
+    ///   - clock: The clock the sleeping operation waits on.
+    ///   - controls: What the `hold` operation reports to and waits on.
+    public init(
+        clock: any EngineClock,
+        controls: FixtureControls = FixtureControls()
+    ) {
         let value = FixtureParameters.value
         let seconds = FixtureParameters.seconds
 
@@ -79,6 +158,18 @@ public struct FixtureModule: CalculationModule {
                 parameters: [],
                 result: .number,
                 compute: { _ in throw FixtureDefect() }
+            ),
+            OperationDefinition(
+                name: FixtureOperation.hold,
+                summary: "Counts itself and waits for a gate to open.",
+                parameters: [],
+                result: .number,
+                compute: { _ in
+                    await controls.probe.enter()
+                    await controls.gate.wait()
+                    await controls.probe.leave()
+                    return 1
+                }
             ),
             OperationDefinition(
                 name: FixtureOperation.spin,
