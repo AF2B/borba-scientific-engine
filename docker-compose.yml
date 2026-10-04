@@ -20,6 +20,21 @@ services:
       retries: 12
       start_period: 5s
 
+  # Applies the database migrations once and exits. The application never migrates on startup: with several replicas
+  # they would race, and a failed migration would take every one of them down.
+  migrate:
+    image: ${IMAGE:-borba-scientific-engine:dev}
+    pull_policy: never
+    command: ["migrate", "--yes"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
   app:
     build:
       context: .
@@ -32,6 +47,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       APP_ENV: ${APP_ENV:-development}
       LOG_FORMAT: ${LOG_FORMAT:-json}

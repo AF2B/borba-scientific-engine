@@ -64,8 +64,12 @@ build-release: ## Compile the release configuration shipped in the container ima
 	$(SWIFT) build --configuration release --product $(PRODUCT)
 
 .PHONY: run
-run: $(ENV_FILE) db-up ## Run the API locally against the Compose PostgreSQL
+run: $(ENV_FILE) migrate ## Run the API locally against the Compose PostgreSQL (applies migrations first)
 	$(SWIFT) run $(PRODUCT) serve
+
+.PHONY: migrate
+migrate: $(ENV_FILE) db-up ## Apply the database migrations to the local PostgreSQL
+	$(SWIFT) run $(PRODUCT) migrate --yes
 
 .PHONY: db-up
 db-up: $(ENV_FILE) ## Start PostgreSQL only and wait until it is healthy
@@ -74,11 +78,15 @@ db-up: $(ENV_FILE) ## Start PostgreSQL only and wait until it is healthy
 ##@ Quality
 
 .PHONY: test
-test: test-unit test-integration ## Run every test suite
+test: test-unit test-contract test-integration ## Run every test suite
 
 .PHONY: test-unit
 test-unit: ## Run the unit tests (no external services required)
 	$(SWIFT) test --filter UnitTests
+
+.PHONY: test-contract
+test-contract: ## Run the HTTP contract tests against the OpenAPI document (in-memory adapters, no services needed)
+	$(SWIFT) test --filter ContractTests
 
 .PHONY: test-integration
 test-integration: db-up ## Run the integration tests against a real PostgreSQL (starts it when needed)
