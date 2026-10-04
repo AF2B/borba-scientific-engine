@@ -29,6 +29,18 @@ public struct TestHarness: Sendable {
     public let application: Application
 }
 
+/// Everything a test needs to drive the production wiring against a real database.
+public struct LiveHarness: Sendable {
+    /// Sends requests through the full HTTP stack.
+    public let client: TestClient
+
+    /// Collects everything the stack logs.
+    public let logs: InMemoryLogHandler
+
+    /// The application under test.
+    public let application: Application
+}
+
 /// Builds the real HTTP stack — middleware, routing, handlers, error mapping — over in-memory adapters.
 ///
 /// Only the adapters are replaced: the history lives in memory and time stands still until a test moves it. Everything
@@ -39,6 +51,41 @@ public enum TestApplication {
 
     /// A database URL that satisfies configuration validation. The in-memory stack never connects to it.
     private static let unusedDatabaseURL = "postgres://engine:unused@localhost:5432/engine"
+
+    /// Runs a test against the production wiring — real database, real clock — and shuts the application down
+    /// afterwards.
+    ///
+    /// - Parameters:
+    ///   - databaseURL: The PostgreSQL database the application uses.
+    ///   - settings: Environment variables that override the test configuration, such as `BATCH_MAX_SIZE`.
+    ///   - test: The test body.
+    /// - Returns: Whatever the test returns.
+    /// - Throws: Anything the test throws, or a failure to configure or shut down the application.
+    @discardableResult
+    public static func runLive<Result>(
+        databaseURL: String,
+        settings: [String: String] = [:],
+        _ test: (LiveHarness) async throws -> Result
+    ) async throws -> Result {
+        let logs = InMemoryLogHandler()
+        let variables = [EnvironmentVariable.databaseURL.rawValue: databaseURL].merging(settings) { _, override in
+            override
+        }
+        let configuration = try ConfigurationLoader.load(from: variables)
+
+        return try await withApp { application in
+            application.logger = Logger(label: "http-live-test") { _ in
+                var handler = logs
+                handler.logLevel = .trace
+                return handler
+            }
+            try ApplicationFactory.configure(application, with: configuration)
+        } _: { application in
+            try await test(
+                LiveHarness(client: TestClient(tester: try application.testing()), logs: logs, application: application)
+            )
+        }
+    }
 
     /// Runs a test against a freshly configured application and shuts it down afterwards.
     ///
