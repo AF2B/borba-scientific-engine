@@ -7,8 +7,9 @@ The project is a Swift engineering laboratory: a modular calculation platform wi
 layering, typed errors, structured observability, real-database integration tests, a container image and CI/CD.
 Everything in the repository — code, comments, documentation and commit messages — is written in English.
 
-> **Status:** under active construction. This README grows with each delivered phase; see the
-> [changelog](CHANGELOG.md) for what is available today.
+> **Status:** under active construction. The calculation engine, the PostgreSQL history and the versioned HTTP API are
+> in place; observability, performance work and the delivery pipelines are next. This README grows with each delivered
+> phase; see the [changelog](CHANGELOG.md) for what is available today.
 
 ## Technology
 
@@ -52,6 +53,22 @@ Every operation carries worked examples that double as executable tests.
 See [ADR-002](Documentation/ADR/ADR-002-domain-oriented-module-structure.md) for the design and
 [Adding a calculation module](Documentation/Development/adding-a-calculation-module.md) to extend it.
 
+## HTTP API
+
+A versioned JSON API under `/api/v1`: run a calculation (singly or in batches, with idempotency keys), read the history
+with filters and cursor pagination, and discover every operation with its parameters and worked examples. One error
+body with stable codes serves every failure, and every response carries request and correlation identifiers.
+
+```bash
+curl -s -X POST http://localhost:8080/api/v1/calculations \
+  -H 'Content-Type: application/json' \
+  -d '{"module": "statistics", "operation": "mean", "parameters": {"values": [1, 2, 3, 4]}}'
+```
+
+The guide is in [Documentation/API](Documentation/API/README.md), the contract in
+[`openapi.json`](Documentation/API/openapi.json) and the error catalog in [`errors.md`](Documentation/API/errors.md).
+The contract tests hold the running API to the document.
+
 ## Getting started
 
 ### Prerequisites
@@ -68,19 +85,23 @@ cd borba-scientific-engine
 make up
 ```
 
-`make up` creates `.env` from `.env.example` on first use, builds the image and starts the API and PostgreSQL. Then:
+`make up` creates `.env` from `.env.example` on first use, builds the image, starts PostgreSQL, applies the migrations
+and then starts the API. Then:
 
 ```bash
 curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/types
 ```
 
 Stop everything with `make down`. For a native development loop, start only the database and run the API with
 SwiftPM:
 
 ```bash
-make db-up
 make run
 ```
+
+`make run` starts PostgreSQL, applies the migrations and runs the API. The application never migrates on startup:
+migrations are an explicit step (`make migrate`, or the `migrate` command of the executable).
 
 ### Configuration
 
@@ -93,6 +114,10 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `DATABASE_URL`            | — (required)                          | PostgreSQL connection URL                       |
 | `HTTP_HOST` / `HTTP_PORT` | `127.0.0.1` locally, `0.0.0.0` deployed / `8080` | Bind address                         |
 | `LOG_LEVEL` / `LOG_FORMAT`| `debug`/`console` locally, `info`/`json` deployed | Logging                             |
+| `HTTP_MAX_BODY_SIZE_BYTES`| 1 MiB                                 | Largest accepted request body                   |
+| `DATABASE_STATEMENT_TIMEOUT_MS` | 5000                            | Longest the server lets one statement run       |
+| `CALCULATION_TIMEOUT_MS`  | 2000                                  | Time budget of one calculation                  |
+| `BATCH_MAX_SIZE` / `BATCH_CONCURRENCY` | 100 / 8                  | Batch size and how many run at once             |
 | `SENTRY_DSN`              | unset (disabled)                      | Error reporting                                 |
 
 ## Developer workflow
@@ -103,7 +128,11 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | ------------------- | ---------------------------------------------------- |
 | `make setup`        | Check the toolchain, create `.env`, resolve packages |
 | `make build`        | Compile (debug)                                      |
-| `make test`         | Run the test suites                                  |
+| `make test`         | Run every test suite                                 |
+| `make test-unit`    | Fast tests, no services                              |
+| `make test-contract`| The HTTP API against the OpenAPI document            |
+| `make test-integration` | Tests against a real PostgreSQL                  |
+| `make migrate`      | Apply the database migrations locally                |
 | `make lint`         | SwiftLint in strict mode                             |
 | `make format`       | Format sources with `swift format`                   |
 | `make up` / `down`  | Start / stop the Docker Compose stack                |
@@ -116,8 +145,14 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 Sources/
   BorbaScientificEngine/   Vapor application: configuration, HTTP, composition root
   Run/                     Executable entry point
+  BorbaScientificCore/     Pure calculation domain: modules, engine, history, ports, events
+  BorbaScientificPersistence/ PostgreSQL adapter: migrations and the repository
 Tests/
   Unit/                    Fast tests with no external services
+  Contract/                The HTTP API held to the OpenAPI document, over in-memory adapters
+  Integration/             Persistence and the HTTP API against a real PostgreSQL
+  Support/, HTTPSupport/, IntegrationSupport/   Shared test fixtures and harnesses
+Documentation/API/         HTTP guide, OpenAPI document and error catalog
 Documentation/ADR/         Architecture decision records
 Scripts/                   Developer and CI helper scripts
 ```

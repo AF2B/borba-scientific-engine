@@ -33,3 +33,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Database health probe that reports unreachable databases and pending migrations.
 - `make test-integration`, which starts PostgreSQL when needed.
 - Architecture decision record for the PostgreSQL persistence strategy.
+- Versioned HTTP API: `POST /api/v1/calculations` and `/batch` (idempotency keys, per-item results, bounded
+  concurrency), `GET /api/v1/calculations` (validated filters, keyset pagination) and `/{id}`, and the discovery
+  endpoints `GET /api/v1/modules`, `/types` and `/types/{module}/{operation}`.
+- `GET /version`.
+- Request and correlation identifiers on every response, adopted from well-formed request headers and bound to the
+  logs of every layer below the HTTP layer.
+- One error body for every failure, driven by an error catalog that maps stable codes to HTTP statuses and keeps
+  internal causes out of responses; security headers on every response.
+- OpenAPI 3.1 document, API guide and error catalog, and contract tests that drive the running API and fail when a
+  response, header, status or error code differs from the document or a route is not documented.
+- In-memory and network HTTP test harnesses, and end-to-end tests of the API against a real PostgreSQL, including
+  concurrent idempotent retries, deep pagination and an unreachable database.
+- Settings for the calculation time budget, batch size and concurrency, and the database statement timeout.
+- `migrate` service in the Compose stack (the API starts only after it succeeds), plus `make migrate` and
+  `make test-contract`.
