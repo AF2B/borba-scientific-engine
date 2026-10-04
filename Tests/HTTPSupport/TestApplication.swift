@@ -41,6 +41,16 @@ public struct LiveHarness: Sendable {
     public let application: Application
 }
 
+/// How a test reaches the application.
+public enum TestTransport: Sendable {
+    /// Hands requests straight to the application. Fast, and enough for everything except the limits the HTTP server
+    /// itself enforces, such as the body size.
+    case inMemory
+
+    /// Starts the server on a free local port and sends real HTTP requests to it.
+    case network
+}
+
 /// Builds the real HTTP stack — middleware, routing, handlers, error mapping — over in-memory adapters.
 ///
 /// Only the adapters are replaced: the history lives in memory and time stands still until a test moves it. Everything
@@ -91,12 +101,14 @@ public enum TestApplication {
     ///
     /// - Parameters:
     ///   - settings: Environment variables that override the test configuration, such as `BATCH_MAX_SIZE`.
+    ///   - transport: How requests reach the application.
     ///   - test: The test body.
     /// - Returns: Whatever the test returns.
     /// - Throws: Anything the test throws, or a failure to configure or shut down the application.
     @discardableResult
     public static func run<Result>(
         settings: [String: String] = [:],
+        transport: TestTransport = .inMemory,
         _ test: (TestHarness) async throws -> Result
     ) async throws -> Result {
         let repository = InMemoryCalculationRepository()
@@ -125,7 +137,7 @@ public enum TestApplication {
         } _: { application in
             try await test(
                 TestHarness(
-                    client: TestClient(tester: try application.testing()),
+                    client: TestClient(tester: try application.testing(method: transport.method)),
                     repository: repository,
                     events: events,
                     clock: clock,
@@ -133,6 +145,20 @@ public enum TestApplication {
                     application: application
                 )
             )
+        }
+    }
+}
+
+extension TestTransport {
+    fileprivate static let loopback = "127.0.0.1"
+    fileprivate static let anyFreePort = 0
+
+    fileprivate var method: Application.Method {
+        switch self {
+        case .inMemory:
+            .inMemory
+        case .network:
+            .running(hostname: Self.loopback, port: Self.anyFreePort)
         }
     }
 }
