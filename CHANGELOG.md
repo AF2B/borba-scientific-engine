@@ -58,3 +58,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   event subscribers drain, and the process exits with status 0. `make smoke-shutdown` verifies it against the real
   executable.
 - Architecture decision record for concurrency and lifecycle.
+- Structured JSON logs with the request and correlation identifiers added to every line by a task-local metadata
+  provider, redaction of secrets and of the parameters of database statements, and an access log per request.
+- `GET /metrics` in the Prometheus format: request rate, errors and duration, calculations by module, operation and
+  outcome, database calls, retries, dropped events, requests in flight, build information and process resources.
+- Error reporting to Sentry without an SDK: only infrastructure and unexpected failures, sampled and folded, carrying no
+  caller data, delivered by a bounded background queue and flushed on shutdown.
+- Architecture decision record and operations guide for observability.

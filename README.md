@@ -69,6 +69,17 @@ The guide is in [Documentation/API](Documentation/API/README.md), the contract i
 [`openapi.json`](Documentation/API/openapi.json) and the error catalog in [`errors.md`](Documentation/API/errors.md).
 The contract tests hold the running API to the document.
 
+## Observability
+
+Three signals with distinct jobs, tied together by the request identifier: **structured JSON logs** that carry the
+request and correlation identifiers in every layer (including the database driver), **Prometheus metrics** at
+`/metrics` (request rate, errors and duration, calculations, database calls, retries, process resources), and an
+**error tracker** (Sentry) that hears only about failures worth a person's attention and never about callers' data.
+`/health` is liveness, `/ready` is readiness (database and migrations), `/version` names the build.
+
+See the [observability guide](Documentation/Operations/observability.md) for queries, alerts and runbooks, and
+[ADR-006](Documentation/ADR/ADR-006-observability.md) for the reasoning.
+
 ## Getting started
 
 ### Prerequisites
