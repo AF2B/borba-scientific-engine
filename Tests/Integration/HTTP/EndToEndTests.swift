@@ -10,7 +10,7 @@ import Vapor
 @testable import BorbaScientificEngine
 
 /// The HTTP API over the production wiring and a real PostgreSQL: what a client of the running service observes.
-@Suite("HTTP API against PostgreSQL")
+@Suite("HTTP API against PostgreSQL", .serialized)
 struct EndToEndTests {
     private static let calculationsPath = "/api/v1/calculations"
     private static let idempotencyKeyHeader = "Idempotency-Key"

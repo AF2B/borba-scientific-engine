@@ -7,7 +7,7 @@ import Testing
 @testable import BorbaScientificCore
 @testable import BorbaScientificPersistence
 
-@Suite("Persistence migrations")
+@Suite("Persistence migrations", .serialized)
 struct MigrationTests {
     private struct NameRow: Decodable {
         let name: String

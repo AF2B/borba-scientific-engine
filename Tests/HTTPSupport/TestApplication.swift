@@ -181,6 +181,10 @@ public enum TestApplication {
     /// The instant the manual clock starts at: 2026-10-03T12:00:00Z.
     public static let startDate = Date(timeIntervalSince1970: 1_791_028_800)
 
+    /// Test applications are small and many run at once against one PostgreSQL, so each opens as few connections per event
+    /// loop as it can, instead of exhausting the server's connection limit.
+    private static let connectionsPerEventLoop = 1
+
     /// A database URL that satisfies configuration validation. The in-memory stack never connects to it.
     private static let unusedDatabaseURL = "postgres://engine:unused@localhost:5432/engine"
 
@@ -200,9 +204,11 @@ public enum TestApplication {
         _ test: (LiveHarness) async throws -> Result
     ) async throws -> Result {
         let logs = InMemoryLogHandler()
-        let variables = [EnvironmentVariable.databaseURL.rawValue: databaseURL].merging(settings) { _, override in
-            override
-        }
+        let defaults = [
+            EnvironmentVariable.databaseURL.rawValue: databaseURL,
+            EnvironmentVariable.databaseMaximumConnectionsPerEventLoop.rawValue: String(connectionsPerEventLoop),
+        ]
+        let variables = defaults.merging(settings) { _, override in override }
         let configuration = try ConfigurationLoader.load(from: variables)
 
         return try await withApp { application in

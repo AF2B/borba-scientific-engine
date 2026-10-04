@@ -13,7 +13,7 @@ import Testing
 @testable import BorbaScientificCore
 @testable import BorbaScientificPersistence
 
-@Suite("FluentCalculationRepository")
+@Suite("FluentCalculationRepository", .serialized)
 struct FluentCalculationRepositoryTests {
     @Test("honours the repository contract on a real PostgreSQL")
     func contract() async throws {
@@ -229,7 +229,7 @@ struct FluentCalculationRepositoryTests {
     }
 }
 
-@Suite("DatabaseHealth")
+@Suite("DatabaseHealth", .serialized)
 struct DatabaseHealthTests {
     @Test("is healthy once every migration has been applied, and measures latency")
     func healthy() async throws {
