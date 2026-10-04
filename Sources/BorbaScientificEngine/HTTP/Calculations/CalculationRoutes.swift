@@ -12,6 +12,7 @@ struct CalculationRoutes: RouteCollection {
 
     private let service: CalculationService
     private let settings: CalculationSettings
+    private let reporter: any ErrorReporter
     private let fingerprinter = RequestFingerprinter()
 
     /// Creates the routes.
@@ -19,12 +20,15 @@ struct CalculationRoutes: RouteCollection {
     /// - Parameters:
     ///   - service: Runs and records calculations.
     ///   - settings: Limits of the batch endpoint.
+    ///   - reporter: Told about the failures of batch items that deserve a person's attention.
     init(
         service: CalculationService,
-        settings: CalculationSettings
+        settings: CalculationSettings,
+        reporter: any ErrorReporter
     ) {
         self.service = service
         self.settings = settings
+        self.reporter = reporter
     }
 
     func boot(routes: any RoutesBuilder) throws {
@@ -152,7 +156,12 @@ struct CalculationRoutes: RouteCollection {
         for request: Request
     ) {
         for case .failure(let failure) in outcomes where failure.classification.isReportable {
-            ErrorMapper.describe(failure).log(to: request.logger)
+            let description = ErrorMapper.describe(failure)
+
+            description.log(to: request.logger)
+            if let reportable = description.reportableFailure(for: request) {
+                reporter.report(reportable)
+            }
         }
     }
 

@@ -27,6 +27,9 @@ struct EngineServices: Sendable {
     /// Holds every metric, and is what `/metrics` publishes.
     let metricsRegistry: PrometheusCollectorRegistry
 
+    /// Told about the failures that deserve a person's attention.
+    let errorReporter: any ErrorReporter
+
     /// Answers whether the service should be sent traffic.
     let readiness: ReadinessService
 

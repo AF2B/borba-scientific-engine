@@ -52,6 +52,7 @@ struct InFlightRequestsTests {
 struct ShutdownSequenceTests {
     private static let requestDrainTimeout = Duration.seconds(15)
     private static let eventDrainTimeout = Duration.seconds(5)
+    private static let errorReportDrainTimeout = Duration.seconds(2)
 
     private struct Fixture {
         let sequence: ShutdownSequence
@@ -76,8 +77,10 @@ struct ShutdownSequenceTests {
                 state: state,
                 inFlight: inFlight,
                 events: events,
+                errorReporter: DisabledErrorReporter(),
                 requestDrainTimeout: Self.requestDrainTimeout,
                 eventDrainTimeout: Self.eventDrainTimeout,
+                errorReportDrainTimeout: Self.errorReportDrainTimeout,
                 clock: clock,
                 logger: logger
             ),

@@ -61,7 +61,7 @@ public enum ApplicationFactory {
         application.middleware.use(AccessLogMiddleware(clock: services.clock))
         application.middleware.use(MetricsMiddleware(metrics: services.metrics, clock: services.clock))
         application.middleware.use(SecurityHeadersMiddleware())
-        application.middleware.use(APIErrorMiddleware())
+        application.middleware.use(APIErrorMiddleware(reporter: services.errorReporter))
     }
 
     private static func registerRoutes(
@@ -78,7 +78,11 @@ public enum ApplicationFactory {
             )
         )
         try application.register(
-            collection: CalculationRoutes(service: services.calculations, settings: configuration.calculation)
+            collection: CalculationRoutes(
+                service: services.calculations,
+                settings: configuration.calculation,
+                reporter: services.errorReporter
+            )
         )
         try application.register(collection: HistoryRoutes(history: services.history))
         try application.register(collection: CatalogRoutes(registry: services.registry))
@@ -98,8 +102,10 @@ public enum ApplicationFactory {
                     state: services.shutdown,
                     inFlight: services.inFlight,
                     events: services.eventDispatcher,
+                    errorReporter: services.errorReporter,
                     requestDrainTimeout: configuration.http.shutdownTimeout,
                     eventDrainTimeout: LiveServices.eventDrainTimeout,
+                    errorReportDrainTimeout: LiveServices.errorReportDrainTimeout,
                     clock: SystemClock(),
                     logger: application.logger
                 ),

@@ -13,6 +13,7 @@ struct ApiContractTests {
     private static let replayedHeader = "Idempotent-Replayed"
     private static let requestIDHeader = "X-Request-ID"
     private static let correlationIDHeader = "X-Correlation-ID"
+    private static let batchRoute = "/api/v1/calculations/batch"
 
     private static let add: CalculationValue = [
         "module": "arithmetic",
@@ -240,6 +241,57 @@ struct ApiContractTests {
             #if os(Linux)
                 #expect((scrape.value("process_resident_memory_bytes") ?? 0) > 0)
             #endif
+        }
+    }
+
+    @Test("tells the error tracker about infrastructure failures and about nothing callers cause")
+    func reportsOnlyWhatDeservesAttention() async throws {
+        try await TestApplication.run { harness in
+            _ = try await harness.client.post(Self.calculationsPath, json: Self.divideByZero)
+            _ = try await harness.client.post(
+                Self.calculationsPath,
+                json: ["module": "arithmetic", "operation": "teleport"]
+            )
+            _ = try await harness.client.post(Self.calculationsPath, body: "{")
+            _ = try await harness.client.get("/nowhere")
+            #expect(harness.reportedErrors.isEmpty, "domain failures and client mistakes are not incidents")
+
+            await harness.repository.failNextCalls(with: .unavailable(reason: "connection refused"))
+            let failing = try await harness.client.post(Self.calculationsPath, json: Self.add)
+
+            #expect(failing.status == .serviceUnavailable)
+            #expect(
+                harness.reportedErrors
+                    == [
+                        ReportedError(
+                            code: "STORAGE_UNAVAILABLE",
+                            classification: "infrastructure",
+                            status: 503,
+                            method: "POST",
+                            route: "/api/v1/calculations",
+                            requestID: try #require(failing.header("X-Request-ID")),
+                            hasDiagnostic: true
+                        )
+                    ]
+            )
+        }
+    }
+
+    @Test("reports each batch item that failed because of the infrastructure, and the history reads that did")
+    func reportsBatchAndHistoryFailures() async throws {
+        try await TestApplication.run { harness in
+            await harness.repository.failNextCalls(with: .unexpected(reason: "constraint violated"), times: 2)
+            let batch: CalculationValue = ["calculations": [Self.add, Self.addOther]]
+
+            let response = try await harness.client.post("\(Self.calculationsPath)/batch", json: batch)
+            await harness.repository.failNextCalls(with: .unavailable(reason: "refused"))
+            _ = try await harness.client.get(Self.calculationsPath)
+
+            #expect(response.status == .ok)
+            #expect(
+                harness.reportedErrors.map(\.code) == ["STORAGE_FAILURE", "STORAGE_FAILURE", "STORAGE_UNAVAILABLE"]
+            )
+            #expect(harness.reportedErrors.map(\.route) == [Self.batchRoute, Self.batchRoute, "/api/v1/calculations"])
         }
     }
 

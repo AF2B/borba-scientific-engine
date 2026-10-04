@@ -33,6 +33,12 @@ public struct TestHarness: Sendable {
 
     let databaseProbe: ControllableProbe
     let shutdownState: ShutdownState
+    let errorReporter: RecordingErrorReporter
+
+    /// The failures that were offered to the error tracker, in order.
+    public var reportedErrors: [ReportedError] {
+        errorReporter.failures
+    }
 
     /// Makes the readiness probe of the database report up or down.
     ///
@@ -48,6 +54,85 @@ public struct TestHarness: Sendable {
     public func beginShutdown() {
         shutdownState.begin()
     }
+}
+
+/// A failure offered to the error tracker, as a test sees it.
+public struct ReportedError: Sendable, Equatable {
+    /// The stable error code.
+    public let code: String
+
+    /// How the failure is classified: `infrastructure` or `unexpected`.
+    public let classification: String
+
+    /// The HTTP status of the response.
+    public let status: UInt
+
+    /// The HTTP method of the request.
+    public let method: String
+
+    /// The route template of the request.
+    public let route: String
+
+    /// The request identifier.
+    public let requestID: String
+
+    /// Whether technical detail went with the failure.
+    public let hasDiagnostic: Bool
+
+    /// Describes a failure, so a test can say what it expects to have been reported.
+    ///
+    /// - Parameters:
+    ///   - code: The stable error code.
+    ///   - classification: `infrastructure` or `unexpected`.
+    ///   - status: The HTTP status of the response.
+    ///   - method: The HTTP method of the request.
+    ///   - route: The route template of the request.
+    ///   - requestID: The request identifier.
+    ///   - hasDiagnostic: Whether technical detail went with the failure.
+    public init(
+        code: String,
+        classification: String,
+        status: UInt,
+        method: String,
+        route: String,
+        requestID: String,
+        hasDiagnostic: Bool
+    ) {
+        self.code = code
+        self.classification = classification
+        self.status = status
+        self.method = method
+        self.route = route
+        self.requestID = requestID
+        self.hasDiagnostic = hasDiagnostic
+    }
+}
+
+/// Remembers every failure it is offered, instead of sending it anywhere.
+final class RecordingErrorReporter: ErrorReporter, Sendable {
+    private let recorded = Mutex<[ReportedError]>([])
+
+    var failures: [ReportedError] {
+        recorded.withLock { $0 }
+    }
+
+    func report(_ failure: ReportableFailure) {
+        let entry = ReportedError(
+            code: failure.code.rawValue,
+            classification: failure.classification == .infrastructure ? "infrastructure" : "unexpected",
+            status: failure.status,
+            method: failure.method,
+            route: failure.route,
+            requestID: failure.trace.requestID.rawValue,
+            hasDiagnostic: failure.diagnostic != nil
+        )
+        recorded.withLock { $0.append(entry) }
+    }
+
+    func shutdown(
+        within timeout: Duration,
+        clock: any EngineClock
+    ) async {}
 }
 
 /// A readiness probe whose answer a test controls.
@@ -162,6 +247,7 @@ public enum TestApplication {
         let configuration = try ConfigurationLoader.load(from: variables)
 
         let probe = ControllableProbe()
+        let errorReporter = RecordingErrorReporter()
         let services = LiveServices.assemble(
             ServiceInputs(
                 repository: repository,
@@ -172,7 +258,8 @@ public enum TestApplication {
                 calculation: configuration.calculation,
                 metrics: metrics,
                 metricsRegistry: metricsRegistry,
-                probes: [probe]
+                probes: [probe],
+                errorReporter: errorReporter
             )
         )
 
@@ -193,7 +280,8 @@ public enum TestApplication {
                     logs: logs,
                     application: application,
                     databaseProbe: probe,
-                    shutdownState: services.shutdown
+                    shutdownState: services.shutdown,
+                    errorReporter: errorReporter
                 )
             )
         }

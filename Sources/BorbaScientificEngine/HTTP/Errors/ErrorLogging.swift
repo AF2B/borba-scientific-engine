@@ -38,3 +38,26 @@ extension ErrorDescription {
         logger.log(level: classification.logLevel, "\(Self.logMessage)", metadata: metadata)
     }
 }
+
+extension ErrorDescription {
+    /// What the error tracker is told about this failure, when it deserves to be told.
+    ///
+    /// - Parameter request: The request that failed.
+    /// - Returns: The failure to report, or `nil` for the expected and application failures a tracker must not see.
+    func reportableFailure(for request: Request) -> ReportableFailure? {
+        guard classification.isReportable else {
+            return nil
+        }
+
+        return ReportableFailure(
+            code: code,
+            classification: classification,
+            status: status.code,
+            message: message,
+            diagnostic: classification == .infrastructure ? diagnostic : nil,
+            method: request.route == nil ? RouteLabel.unmatchedMethod : request.method.rawValue,
+            route: RouteLabel.template(of: request),
+            trace: request.trace
+        )
+    }
+}

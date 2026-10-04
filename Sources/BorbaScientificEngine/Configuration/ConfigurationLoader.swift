@@ -176,8 +176,13 @@ public enum ConfigurationLoader {
     /// - Parameter reader: Source of the variables; records issues for invalid values.
     /// - Returns: The Sentry settings; reporting is disabled while no DSN is set.
     private static func readSentrySettings(from reader: inout EnvironmentReader) -> SentrySettings {
-        SentrySettings(
-            dsn: reader.optionalString(.sentryDSN).map(Secret.init),
+        let dsn = reader.optionalString(.sentryDSN)
+        if let dsn, SentryDSN.parse(dsn) == nil {
+            reader.report(.sentryDSN, reason: "must look like https://<key>@<host>/<project id>")
+        }
+
+        return SentrySettings(
+            dsn: dsn.map(Secret.init),
             sampleRate: reader.decimal(
                 .sentrySampleRate,
                 default: ConfigurationDefaults.sentrySampleRate,

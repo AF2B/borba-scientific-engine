@@ -67,14 +67,17 @@ final class ShutdownSignalWatcher: Sendable {
 /// 1. Readiness flips to "not ready", if a signal had not already done it, so no new traffic is sent.
 /// 2. The requests that were already accepted get up to `requestDrainTimeout` to finish, with the database still open.
 /// 3. The event subscribers get up to `eventDrainTimeout` to deliver what is queued.
+/// 4. The error reporter gets up to `errorReportDrainTimeout` to deliver the reports that are still waiting.
 ///
 /// Only after this does Vapor close the database pool.
 struct ShutdownSequence: Sendable {
     let state: ShutdownState
     let inFlight: InFlightRequests
     let events: EventDispatcher?
+    let errorReporter: any ErrorReporter
     let requestDrainTimeout: Duration
     let eventDrainTimeout: Duration
+    let errorReportDrainTimeout: Duration
     let clock: any EngineClock
     let logger: Logger
 
@@ -100,6 +103,7 @@ struct ShutdownSequence: Sendable {
         }
 
         await events?.shutdown(within: eventDrainTimeout, clock: clock)
+        await errorReporter.shutdown(within: errorReportDrainTimeout, clock: clock)
     }
 }
 

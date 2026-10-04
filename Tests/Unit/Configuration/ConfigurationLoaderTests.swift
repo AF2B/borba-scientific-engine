@@ -156,6 +156,9 @@ struct ConfigurationLoaderTests {
             (.batchConcurrency, "0"),
             (.batchConcurrency, "65"),
             (.sentrySampleRate, "1.5"),
+            (.sentryDSN, "not-a-dsn"),
+            (.sentryDSN, "ftp://key@host/1"),
+            (.sentryDSN, "https://host/1"),
         ]
     )
     func rejectsMalformedValues(variable: EnvironmentVariable, value: String) {

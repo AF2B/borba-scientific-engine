@@ -155,6 +155,43 @@ struct EndToEndTests {
         }
     }
 
+    @Test("reports an unreachable database to the error tracker, without the caller's data or the database's address")
+    func reportsToTheErrorTracker() async throws {
+        let server = try await FakeSentryServer()
+        let unreachable = "postgres://engine:secret-password@127.0.0.1:1/hidden_database_name"
+        let settings = [
+            EnvironmentVariable.databasePoolTimeoutMilliseconds.rawValue: "200",
+            EnvironmentVariable.sentryDSN.rawValue: server.dsn,
+        ]
+        let sensitive: CalculationValue = [
+            "module": "arithmetic",
+            "operation": "add",
+            "parameters": ["a": 123_456_789, "b": 987_654_321],
+        ]
+
+        let response = try await TestApplication.runLive(databaseURL: unreachable, settings: settings) { harness in
+            let response = try await harness.client.post(Self.calculationsPath, json: sensitive)
+            for _ in 0..<Self.metricsPollAttempts where server.envelopes.isEmpty {
+                try await Task.sleep(for: Self.metricsPollInterval)
+            }
+            return response
+        }
+        let received = try #require(server.envelopes.first)
+        await server.stop()
+
+        #expect(response.status == .serviceUnavailable)
+        #expect(received.body.contains("STORAGE_UNAVAILABLE"))
+        #expect(received.body.contains("\"classification\":\"infrastructure\""))
+        #expect(received.body.contains("\"route\":\"/api/v1/calculations\""))
+        #expect(
+            received.body.contains(try #require(response.header("X-Request-ID"))),
+            "the request identifier leads to the logs"
+        )
+        for secret in ["123456789", "987654321", "secret-password", "hidden_database_name", "parameters"] {
+            #expect(!received.body.contains(secret), "\(secret) must never reach the tracker")
+        }
+    }
+
     @Test("reports ready once the schema is migrated, and names the problem when it is not")
     func readinessFollowsTheDatabase() async throws {
         try await PostgresTestDatabase.withEmptyDatabase { database in

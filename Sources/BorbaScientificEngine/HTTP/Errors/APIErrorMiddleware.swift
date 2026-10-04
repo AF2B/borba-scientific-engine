@@ -8,6 +8,15 @@ import Vapor
 struct APIErrorMiddleware: AsyncMiddleware {
     private static let fallbackMessage = "An unexpected error occurred."
 
+    private let reporter: any ErrorReporter
+
+    /// Creates the middleware.
+    ///
+    /// - Parameter reporter: Told about the failures that deserve a person's attention.
+    init(reporter: any ErrorReporter) {
+        self.reporter = reporter
+    }
+
     /// Runs the rest of the chain and converts a thrown error into a response.
     ///
     /// - Parameters:
@@ -24,6 +33,9 @@ struct APIErrorMiddleware: AsyncMiddleware {
         } catch {
             let description = ErrorMapper.describe(error)
             description.log(to: request.logger)
+            if let failure = description.reportableFailure(for: request) {
+                reporter.report(failure)
+            }
             return response(for: description, on: request)
         }
     }

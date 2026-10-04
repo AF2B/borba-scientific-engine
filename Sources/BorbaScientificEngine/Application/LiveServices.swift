@@ -33,6 +33,9 @@ struct ServiceInputs {
     /// Holds the metrics, and is what `/metrics` publishes.
     let metricsRegistry: PrometheusCollectorRegistry
 
+    /// Told about the failures that deserve a person's attention.
+    let errorReporter: any ErrorReporter
+
     /// Creates the inputs.
     ///
     /// - Parameters:
@@ -44,6 +47,7 @@ struct ServiceInputs {
     ///   - metricsRegistry: Holds the metrics, and is what `/metrics` publishes.
     ///   - probes: What must be up for the service to be ready.
     ///   - eventDispatcher: The dispatcher behind `events`, if the services own it.
+    ///   - errorReporter: Told about the failures that deserve a person's attention.
     init(
         repository: any CalculationRepository,
         events: any EventPublisher,
@@ -52,7 +56,8 @@ struct ServiceInputs {
         metrics: EngineMetrics,
         metricsRegistry: PrometheusCollectorRegistry,
         probes: [any ReadinessProbe] = [],
-        eventDispatcher: EventDispatcher? = nil
+        eventDispatcher: EventDispatcher? = nil,
+        errorReporter: any ErrorReporter = DisabledErrorReporter()
     ) {
         self.repository = repository
         self.events = events
@@ -62,6 +67,7 @@ struct ServiceInputs {
         self.metricsRegistry = metricsRegistry
         self.probes = probes
         self.eventDispatcher = eventDispatcher
+        self.errorReporter = errorReporter
     }
 }
 
@@ -71,6 +77,13 @@ enum LiveServices {
     private static let readinessTimeToLiveSeconds = 1
     private static let readinessProbeTimeoutSeconds = 2
     private static let eventDrainTimeoutSeconds = 5
+    private static let errorReportDrainTimeoutSeconds = 2
+    private static let errorReportQueueSize = 100
+    private static let errorReportSendTimeoutSeconds = 5
+    private static let throttleWindowSeconds = 60
+    private static let reportsPerWindow = 30
+    private static let trackerConnectTimeoutSeconds = 2
+    private static let trackerReadTimeoutSeconds = 5
 
     /// How many undelivered events each subscriber may queue before its oldest are dropped.
     static let eventBufferSize = 1_000
@@ -83,6 +96,9 @@ enum LiveServices {
 
     /// The longest the event subscribers get to deliver queued events during shutdown.
     static let eventDrainTimeout = Duration.seconds(eventDrainTimeoutSeconds)
+
+    /// The longest queued error reports get to be delivered during shutdown.
+    static let errorReportDrainTimeout = Duration.seconds(errorReportDrainTimeoutSeconds)
 
     /// Registers the database and its migrations on the application and assembles the services on top of them.
     ///
@@ -128,7 +144,13 @@ enum LiveServices {
                 metrics: metrics,
                 metricsRegistry: metricsRegistry,
                 probes: [DatabaseReadinessProbe(health: health)],
-                eventDispatcher: dispatcher
+                eventDispatcher: dispatcher,
+                errorReporter: makeErrorReporter(
+                    on: application,
+                    for: configuration,
+                    metrics: metrics,
+                    clock: clock
+                )
             )
         )
     }
@@ -162,6 +184,7 @@ enum LiveServices {
             clock: inputs.clock,
             metrics: metrics,
             metricsRegistry: inputs.metricsRegistry,
+            errorReporter: inputs.errorReporter,
             readiness: ReadinessService(
                 probes: inputs.probes,
                 shutdown: shutdown,
@@ -205,6 +228,49 @@ enum LiveServices {
         )
         metrics.setProcessGauge(MetricName.processStartTime, Date().timeIntervalSince1970)
         return metrics
+    }
+
+    /// The error tracker: Sentry when a DSN is configured, nothing otherwise.
+    private static func makeErrorReporter(
+        on application: Application,
+        for configuration: AppConfiguration,
+        metrics: EngineMetrics,
+        clock: any EngineClock
+    ) -> any ErrorReporter {
+        guard let dsn = configuration.sentry.dsn.flatMap({ SentryDSN.parse($0.reveal()) }) else {
+            return DisabledErrorReporter()
+        }
+
+        // Connection attempts to an unreachable tracker are retried by the HTTP client until its connect timeout, which
+        // defaults to ten seconds; bound it, so an outage of the tracker is noticed quickly and holds nothing for long.
+        application.http.client.configuration.timeout.connect = .seconds(Int64(trackerConnectTimeoutSeconds))
+        application.http.client.configuration.timeout.read = .seconds(Int64(trackerReadTimeoutSeconds))
+
+        return SentryReporter(
+            settings: SentryReporterSettings(
+                project: SentryProject(
+                    dsn: dsn,
+                    context: SentryContext(
+                        release: "\(ServiceIdentity.name)@\(configuration.version.number)",
+                        environment: configuration.environment.rawValue,
+                        clientVersion: configuration.version.number
+                    )
+                ),
+                sampleRate: configuration.sentry.sampleRate,
+                queueSize: errorReportQueueSize,
+                sendTimeout: .seconds(errorReportSendTimeoutSeconds)
+            ),
+            transport: VaporEnvelopeTransport(client: application.client),
+            throttle: ReportThrottle(
+                window: .seconds(throttleWindowSeconds),
+                limitPerWindow: reportsPerWindow,
+                clock: clock
+            ),
+            clock: clock,
+            identifiers: UUIDv7Generator(clock: clock),
+            metrics: metrics,
+            logger: application.logger
+        )
     }
 
     /// The history store: PostgreSQL, measured on every attempt, and retried where repeating is safe. The metering sits
