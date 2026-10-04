@@ -16,7 +16,7 @@ enum ServiceIdentity {
 }
 
 /// Liveness payload.
-struct LivenessResponse: Content {
+struct LivenessResponse: Encodable, Sendable {
     enum Status: String, Codable {
         case alive
     }
@@ -25,7 +25,7 @@ struct LivenessResponse: Content {
 }
 
 /// The body of the response to `GET /version`.
-struct VersionResponse: Content {
+struct VersionResponse: Encodable, Sendable {
     /// The service name.
     let name: String
 
@@ -76,17 +76,19 @@ struct OperationalRoutes: RouteCollection {
     ///
     /// - Parameter request: The incoming request.
     /// - Returns: A constant "alive" payload.
+    /// - Throws: An encoding error when the response cannot be serialized.
     @Sendable
-    private func liveness(_ request: Request) async -> LivenessResponse {
-        LivenessResponse(status: .alive)
+    private func liveness(_ request: Request) throws -> Response {
+        try request.jsonResponse(LivenessResponse(status: .alive))
     }
 
     /// Reports which build is running.
     ///
     /// - Parameter request: The incoming request.
     /// - Returns: The build metadata.
+    /// - Throws: An encoding error when the response cannot be serialized.
     @Sendable
-    private func versionInformation(_ request: Request) async -> VersionResponse {
-        version
+    private func versionInformation(_ request: Request) throws -> Response {
+        try request.jsonResponse(version)
     }
 }
