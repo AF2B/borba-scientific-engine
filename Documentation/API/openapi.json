@@ -1,0 +1,625 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Borba Scientific Engine API",
+    "version": "1.0.0",
+    "summary": "Scientific calculations with a persistent, queryable history.",
+    "description": "Runs calculations from nine modules (arithmetic, percentage, statistics, financial, scientific, conversion, expression, numerical, linear algebra) and records every one of them.\n\n**Conventions**\n\n- Every request and every response is JSON (`application/json`). Field names are `snake_case`.\n- Every response carries `X-Request-ID` and `X-Correlation-ID`. A well-formed value sent by the caller (1 to 128 characters of letters, digits and `-_.:`) is adopted; otherwise one is generated. Quote the request identifier when asking for support.\n- Every error, whatever its status, has the body described by `ErrorResponse`, with a stable `code` to branch on.\n- A calculation that runs and fails (a division by zero, say) is recorded and answered with an error that carries its `calculation_id`.\n- `Idempotency-Key` makes a retry of `POST /api/v1/calculations` safe: the first request is computed and recorded, later identical requests are answered from the record. Reusing a key with different content is an error.\n- Lists are paged with an opaque `cursor`; the order is newest first.\n- Responses are never cacheable (`Cache-Control: no-store`) and carry the usual browser hardening headers.\n\nThe operational endpoints (`/health`, `/version`) are not versioned.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "Calculations", "description": "Run calculations." },
+    { "name": "History", "description": "Read the recorded calculations." },
+    { "name": "Catalog", "description": "Discover what can be calculated." },
+    { "name": "Operations", "description": "Endpoints for orchestrators and operators." }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Operations"],
+        "operationId": "getHealth",
+        "summary": "Liveness",
+        "description": "Reports that the process is alive. It never touches the database, so a database outage does not get the process restarted.",
+        "responses": {
+          "200": {
+            "description": "The process is alive.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Liveness" } } }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "tags": ["Operations"],
+        "operationId": "getVersion",
+        "summary": "Running build",
+        "responses": {
+          "200": {
+            "description": "The build that is running.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Version" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/calculations": {
+      "post": {
+        "tags": ["Calculations"],
+        "operationId": "createCalculation",
+        "summary": "Run a calculation",
+        "description": "Validates the parameters, runs the calculation under its time budget and records the outcome.\n\nA calculation that runs is answered with `201 Created`. One that fails while running is answered with `422` and an error carrying `calculation_id`. A request refused before it runs (unknown operation, invalid parameters) is not recorded.",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdempotencyKey" },
+          { "$ref": "#/components/parameters/RequestIdHeader" },
+          { "$ref": "#/components/parameters/CorrelationIdHeader" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalculationRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "A retry with the same `Idempotency-Key`: the stored calculation is returned and nothing ran.",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestId" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" },
+              "Location": { "$ref": "#/components/headers/Location" },
+              "Idempotent-Replayed": { "$ref": "#/components/headers/IdempotentReplayed" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Calculation" } } }
+          },
+          "201": {
+            "description": "The calculation ran and was recorded.",
+            "headers": {
+              "X-Request-ID": { "$ref": "#/components/headers/RequestId" },
+              "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" },
+              "Location": { "$ref": "#/components/headers/Location" }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Calculation" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "422": { "$ref": "#/components/responses/Unprocessable" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      },
+      "get": {
+        "tags": ["History"],
+        "operationId": "listCalculations",
+        "summary": "List recorded calculations",
+        "description": "Newest first. Unknown query parameters are rejected, so a misspelt filter cannot silently list everything.",
+        "parameters": [
+          { "name": "module", "in": "query", "description": "Only calculations of this module.", "schema": { "type": "string" } },
+          { "name": "operation", "in": "query", "description": "Only calculations of this operation.", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "description": "Only calculations with this status.", "schema": { "$ref": "#/components/schemas/CalculationStatus" } },
+          { "name": "created_from", "in": "query", "description": "Only calculations recorded at or after this instant (ISO 8601).", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "created_before", "in": "query", "description": "Only calculations recorded before this instant (ISO 8601). Must be later than `created_from`.", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "limit", "in": "query", "description": "How many calculations to return.", "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } },
+          { "name": "cursor", "in": "query", "description": "The `page.next_cursor` of the previous page. Treat it as an opaque token.", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of the history.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HistoryPage" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v1/calculations/batch": {
+      "post": {
+        "tags": ["Calculations"],
+        "operationId": "createCalculationBatch",
+        "summary": "Run many calculations",
+        "description": "Runs the calculations concurrently, up to a bounded number at a time, and reports each one independently, in request order. The batch is answered with `200` whenever it was understood; one failing calculation never affects the others. Each calculation may carry its own `idempotency_key`.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "One entry per calculation, in request order.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchResponse" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "413": { "$ref": "#/components/responses/PayloadTooLarge" },
+          "415": { "$ref": "#/components/responses/UnsupportedMediaType" },
+          "422": { "$ref": "#/components/responses/Unprocessable" },
+          "500": { "$ref": "#/components/responses/InternalError" }
+        }
+      }
+    },
+    "/api/v1/calculations/{id}": {
+      "get": {
+        "tags": ["History"],
+        "operationId": "getCalculation",
+        "summary": "Read one calculation",
+        "description": "Returns the calculation whether it succeeded or failed.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "description": "Identifier of the calculation.", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The calculation.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Calculation" } } }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/InternalError" },
+          "503": { "$ref": "#/components/responses/ServiceUnavailable" }
+        }
+      }
+    },
+    "/api/v1/modules": {
+      "get": {
+        "tags": ["Catalog"],
+        "operationId": "listModules",
+        "summary": "List the modules",
+        "responses": {
+          "200": {
+            "description": "Every module with its operations.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModuleList" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/types": {
+      "get": {
+        "tags": ["Catalog"],
+        "operationId": "listTypes",
+        "summary": "List the supported calculation types",
+        "responses": {
+          "200": {
+            "description": "Every supported calculation type, as a flat list.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TypeList" } } }
+          }
+        }
+      }
+    },
+    "/api/v1/types/{module}/{operation}": {
+      "get": {
+        "tags": ["Catalog"],
+        "operationId": "getOperationMetadata",
+        "summary": "Describe one operation",
+        "description": "Its parameters with their constraints and defaults, the shape of its result and worked examples.",
+        "parameters": [
+          { "name": "module", "in": "path", "required": true, "description": "Name of the module, such as `statistics`.", "schema": { "type": "string" } },
+          { "name": "operation", "in": "path", "required": true, "description": "Name of the operation, such as `mean`.", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation's metadata.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OperationMetadata" } } }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "Makes a retry safe. 1 to 255 visible ASCII characters, typically a UUID. Identical requests with the same key are answered from the first one's record; a different request with the same key is refused with `IDEMPOTENCY_KEY_REUSED`.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 255 }
+      },
+      "RequestIdHeader": {
+        "name": "X-Request-ID",
+        "in": "header",
+        "required": false,
+        "description": "Identifier of this request. Adopted when well formed (1 to 128 letters, digits and `-_.:`), generated otherwise.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 128 }
+      },
+      "CorrelationIdHeader": {
+        "name": "X-Correlation-ID",
+        "in": "header",
+        "required": false,
+        "description": "Identifier of the logical operation the request belongs to. Defaults to the request identifier.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "Identifier of this request, to quote when asking for support.",
+        "schema": { "type": "string" }
+      },
+      "CorrelationId": {
+        "description": "Identifier of the logical operation the request belongs to.",
+        "schema": { "type": "string" }
+      },
+      "Location": {
+        "description": "Path of the recorded calculation.",
+        "schema": { "type": "string" }
+      },
+      "IdempotentReplayed": {
+        "description": "Always `true`: the response repeats the stored outcome of an earlier identical request.",
+        "schema": { "type": "string", "enum": ["true"] }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "The request is malformed: unreadable JSON, a missing or unknown field, a bad header or query parameter (`INVALID_REQUEST`).",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "NotFound": {
+        "description": "The calculation, module or operation does not exist (`CALCULATION_NOT_FOUND`, `UNSUPPORTED_OPERATION`), or no endpoint exists at the path (`NOT_FOUND`).",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "PayloadTooLarge": {
+        "description": "The request body is larger than the server accepts (`PAYLOAD_TOO_LARGE`).",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "UnsupportedMediaType": {
+        "description": "The body must be sent as `application/json` (`UNSUPPORTED_MEDIA_TYPE`).",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "Unprocessable": {
+        "description": "The request was understood but cannot be processed: invalid parameters (`VALIDATION_FAILED`), an idempotency key reused with a different request (`IDEMPOTENCY_KEY_REUSED`), a limit exceeded (`LIMIT_EXCEEDED`), or a calculation that ran and failed (`DIVISION_BY_ZERO`, `UNDEFINED_RESULT`, `NUMERIC_OVERFLOW`, `NO_CONVERGENCE`, `INVALID_EXPRESSION`, `SINGULAR_MATRIX`, `CALCULATION_TIMEOUT`). A failure of the last kind carries `calculation_id`.",
+        "headers": {
+          "X-Request-ID": { "$ref": "#/components/headers/RequestId" },
+          "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" }
+        },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "InternalError": {
+        "description": "An unexpected failure inside the engine (`INTERNAL_ERROR`, `STORAGE_FAILURE`). Quote the request identifier when reporting it.",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      },
+      "ServiceUnavailable": {
+        "description": "The calculation history is temporarily unavailable, or the calculation was cancelled before it finished (`STORAGE_UNAVAILABLE`, `CALCULATION_CANCELLED`). Retry.",
+        "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorResponse" } } }
+      }
+    },
+    "schemas": {
+      "Liveness": {
+        "type": "object",
+        "required": ["status"],
+        "additionalProperties": false,
+        "properties": { "status": { "type": "string", "enum": ["alive"] } }
+      },
+      "Version": {
+        "type": "object",
+        "required": ["name", "version", "commit", "environment", "api_versions"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "The service name." },
+          "version": { "type": "string", "description": "Semantic version of the running build." },
+          "commit": { "type": "string", "description": "Git commit the build was produced from." },
+          "build_date": { "type": "string", "description": "ISO 8601 timestamp of the build, when the pipeline provides one." },
+          "environment": { "type": "string", "enum": ["development", "test", "staging", "production"] },
+          "api_versions": { "type": "array", "items": { "type": "string" }, "description": "The versions of the business API this build serves." }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Stable identifier of an error. Branch on this, never on the message. The full catalog, with statuses and meanings, is in `Documentation/API/errors.md`.",
+        "enum": [
+          "INVALID_REQUEST",
+          "UNSUPPORTED_MEDIA_TYPE",
+          "PAYLOAD_TOO_LARGE",
+          "NOT_FOUND",
+          "VALIDATION_FAILED",
+          "UNSUPPORTED_OPERATION",
+          "CALCULATION_NOT_FOUND",
+          "IDEMPOTENCY_KEY_REUSED",
+          "DIVISION_BY_ZERO",
+          "UNDEFINED_RESULT",
+          "NUMERIC_OVERFLOW",
+          "LIMIT_EXCEEDED",
+          "NO_CONVERGENCE",
+          "INVALID_EXPRESSION",
+          "SINGULAR_MATRIX",
+          "CALCULATION_TIMEOUT",
+          "CALCULATION_CANCELLED",
+          "STORAGE_UNAVAILABLE",
+          "STORAGE_FAILURE",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "required": ["reason"],
+        "additionalProperties": false,
+        "properties": {
+          "field": { "type": "string", "description": "The parameter, field, header or query parameter the detail refers to." },
+          "reason": { "type": "string", "description": "What is wrong, phrased so the caller can fix it." }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": ["code", "message", "request_id"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "$ref": "#/components/schemas/ErrorCode" },
+          "message": { "type": "string", "description": "Explanation that is safe to show to a person. It never contains internal details." },
+          "request_id": { "type": "string", "description": "The request that failed." },
+          "details": { "type": "array", "items": { "$ref": "#/components/schemas/ErrorDetail" }, "description": "Structured context; omitted when empty." },
+          "calculation_id": { "type": "string", "format": "uuid", "description": "The recorded calculation, when the failure happened while running one." }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "additionalProperties": false,
+        "properties": { "error": { "$ref": "#/components/schemas/ErrorBody" } }
+      },
+      "CalculationValue": {
+        "description": "Any JSON value: a number, text, boolean, null, a list or an object. Operations document what they accept and return."
+      },
+      "CalculationRequest": {
+        "type": "object",
+        "required": ["module", "operation"],
+        "additionalProperties": false,
+        "properties": {
+          "module": { "type": "string", "description": "Name of the module, such as `arithmetic`." },
+          "operation": { "type": "string", "description": "Name of the operation, such as `add`." },
+          "parameters": {
+            "type": "object",
+            "description": "The operation's parameters by name. `GET /api/v1/types/{module}/{operation}` describes them.",
+            "additionalProperties": { "$ref": "#/components/schemas/CalculationValue" }
+          }
+        },
+        "examples": [
+          { "module": "arithmetic", "operation": "add", "parameters": { "a": 2, "b": 3 } }
+        ]
+      },
+      "BatchItem": {
+        "type": "object",
+        "required": ["module", "operation"],
+        "additionalProperties": false,
+        "properties": {
+          "module": { "type": "string" },
+          "operation": { "type": "string" },
+          "parameters": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/CalculationValue" } },
+          "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 255, "description": "Makes a retry of this calculation safe." }
+        }
+      },
+      "BatchRequest": {
+        "type": "object",
+        "required": ["calculations"],
+        "additionalProperties": false,
+        "properties": {
+          "calculations": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/BatchItem" }, "description": "At most the server's batch limit (100 by default)." }
+        }
+      },
+      "CalculationStatus": {
+        "type": "string",
+        "enum": ["succeeded", "failed"]
+      },
+      "CalculationFailure": {
+        "type": "object",
+        "required": ["code", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "$ref": "#/components/schemas/ErrorCode" },
+          "message": { "type": "string" },
+          "details": { "type": "array", "items": { "$ref": "#/components/schemas/ErrorDetail" } }
+        }
+      },
+      "Calculation": {
+        "type": "object",
+        "description": "A recorded calculation. A succeeded one has a `result`; a failed one, which only the history returns, has an `error`.",
+        "required": ["id", "module", "operation", "status", "parameters", "execution_time_ms", "created_at", "request_id", "correlation_id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "module": { "type": "string" },
+          "operation": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/CalculationStatus" },
+          "parameters": { "type": "object", "description": "The parameters exactly as the caller supplied them.", "additionalProperties": { "$ref": "#/components/schemas/CalculationValue" } },
+          "result": { "$ref": "#/components/schemas/CalculationValue" },
+          "error": { "$ref": "#/components/schemas/CalculationFailure" },
+          "execution_time_ms": { "type": "number", "minimum": 0, "description": "Time spent computing, in milliseconds, excluding persistence." },
+          "created_at": { "type": "string", "format": "date-time", "description": "When the calculation was recorded, ISO 8601 in UTC with millisecond precision." },
+          "request_id": { "type": "string", "description": "The request that asked for the calculation." },
+          "correlation_id": { "type": "string", "description": "The logical operation the request belonged to." }
+        }
+      },
+      "BatchItemResult": {
+        "type": "object",
+        "description": "Either `calculation` or `error` is present. When the calculation ran and failed, `error.calculation_id` points at the recorded calculation.",
+        "required": ["index"],
+        "additionalProperties": false,
+        "properties": {
+          "index": { "type": "integer", "minimum": 0, "description": "Position of the calculation in the request." },
+          "calculation": { "$ref": "#/components/schemas/Calculation" },
+          "replayed": { "type": "boolean", "description": "Present, and true, when the calculation is the stored result of an earlier request with the same idempotency key." },
+          "error": { "$ref": "#/components/schemas/ErrorBody" }
+        }
+      },
+      "BatchSummary": {
+        "type": "object",
+        "required": ["total", "succeeded", "failed"],
+        "additionalProperties": false,
+        "properties": {
+          "total": { "type": "integer", "minimum": 0 },
+          "succeeded": { "type": "integer", "minimum": 0 },
+          "failed": { "type": "integer", "minimum": 0, "description": "Calculations that did not produce a result, whether they failed while running or were refused beforehand." }
+        }
+      },
+      "BatchResponse": {
+        "type": "object",
+        "required": ["results", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/BatchItemResult" } },
+          "summary": { "$ref": "#/components/schemas/BatchSummary" }
+        }
+      },
+      "PageInfo": {
+        "type": "object",
+        "required": ["limit", "next_cursor"],
+        "additionalProperties": false,
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100, "description": "The most entries the page may hold." },
+          "next_cursor": { "type": ["string", "null"], "description": "Token that reads the next page, or `null` on the last one." }
+        }
+      },
+      "HistoryPage": {
+        "type": "object",
+        "required": ["items", "page"],
+        "additionalProperties": false,
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Calculation" } },
+          "page": { "$ref": "#/components/schemas/PageInfo" }
+        }
+      },
+      "TypeEntry": {
+        "type": "object",
+        "required": ["type", "module", "operation", "summary"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "description": "The qualified name, such as `statistics.mean`." },
+          "module": { "type": "string" },
+          "operation": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      },
+      "TypeList": {
+        "type": "object",
+        "required": ["types"],
+        "additionalProperties": false,
+        "properties": { "types": { "type": "array", "items": { "$ref": "#/components/schemas/TypeEntry" } } }
+      },
+      "OperationSummary": {
+        "type": "object",
+        "required": ["name", "summary"],
+        "additionalProperties": false,
+        "properties": { "name": { "type": "string" }, "summary": { "type": "string" } }
+      },
+      "ModuleEntry": {
+        "type": "object",
+        "required": ["name", "summary", "operations"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "operations": { "type": "array", "items": { "$ref": "#/components/schemas/OperationSummary" } }
+        }
+      },
+      "ModuleList": {
+        "type": "object",
+        "required": ["modules"],
+        "additionalProperties": false,
+        "properties": { "modules": { "type": "array", "items": { "$ref": "#/components/schemas/ModuleEntry" } } }
+      },
+      "Bound": {
+        "type": "object",
+        "required": ["value", "inclusive"],
+        "additionalProperties": false,
+        "properties": { "value": { "type": "number" }, "inclusive": { "type": "boolean" } }
+      },
+      "SizeRange": {
+        "type": "object",
+        "required": ["min", "max"],
+        "additionalProperties": false,
+        "properties": { "min": { "type": "integer" }, "max": { "type": "integer" } }
+      },
+      "ParameterConstraints": {
+        "type": "object",
+        "description": "`minimum` and `maximum` bound the value itself, or each element for list parameters. Constraints that do not apply to a parameter's type are omitted.",
+        "additionalProperties": false,
+        "properties": {
+          "minimum": { "$ref": "#/components/schemas/Bound" },
+          "maximum": { "$ref": "#/components/schemas/Bound" },
+          "items": { "$ref": "#/components/schemas/SizeRange" },
+          "rows": { "$ref": "#/components/schemas/SizeRange" },
+          "columns": { "$ref": "#/components/schemas/SizeRange" },
+          "max_length": { "type": "integer" },
+          "choices": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "ParameterType": {
+        "type": "string",
+        "enum": ["number", "integer", "decimal", "boolean", "text", "choice", "number_list", "decimal_list", "number_matrix", "number_map"]
+      },
+      "Parameter": {
+        "type": "object",
+        "required": ["name", "summary", "type", "required"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "type": { "$ref": "#/components/schemas/ParameterType" },
+          "required": { "type": "boolean" },
+          "default": { "$ref": "#/components/schemas/CalculationValue" },
+          "constraints": { "$ref": "#/components/schemas/ParameterConstraints" }
+        }
+      },
+      "ShapeField": {
+        "type": "object",
+        "required": ["name", "summary", "shape"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "summary": { "type": "string" },
+          "shape": { "$ref": "#/components/schemas/Shape" }
+        }
+      },
+      "Shape": {
+        "type": "object",
+        "description": "The structure of a result: a number, text, a boolean, a list of one shape or an object with named fields.",
+        "required": ["type"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "enum": ["number", "text", "boolean", "list", "object"] },
+          "items": { "$ref": "#/components/schemas/Shape", "description": "Present for lists: the shape of every element." },
+          "fields": { "type": "array", "items": { "$ref": "#/components/schemas/ShapeField" }, "description": "Present for objects." }
+        }
+      },
+      "Example": {
+        "type": "object",
+        "required": ["summary", "parameters", "result"],
+        "additionalProperties": false,
+        "properties": {
+          "summary": { "type": "string" },
+          "parameters": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/CalculationValue" } },
+          "result": { "$ref": "#/components/schemas/CalculationValue" }
+        }
+      },
+      "OperationMetadata": {
+        "type": "object",
+        "required": ["type", "module", "operation", "summary", "parameters", "result", "examples"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string" },
+          "module": { "type": "string" },
+          "operation": { "type": "string" },
+          "summary": { "type": "string" },
+          "parameters": { "type": "array", "items": { "$ref": "#/components/schemas/Parameter" } },
+          "result": { "$ref": "#/components/schemas/Shape" },
+          "examples": { "type": "array", "items": { "$ref": "#/components/schemas/Example" }, "description": "Worked examples, executed by the engine's own tests so they cannot drift from the implementation." }
+        }
+      }
+    }
+  }
+}
