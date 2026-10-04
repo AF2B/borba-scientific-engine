@@ -80,6 +80,24 @@ request and correlation identifiers in every layer (including the database drive
 See the [observability guide](Documentation/Operations/observability.md) for queries, alerts and runbooks, and
 [ADR-006](Documentation/ADR/ADR-006-observability.md) for the reasoning.
 
+## Testing and performance
+
+Five layers, each answering a different question: **unit** (the domain; fast, no services), **contract** (the running
+API held to the OpenAPI document), **integration** (persistence and the API against a real PostgreSQL, one temporary
+database per test), **performance** (benchmarks reporting min, p50, p95, p99, max, mean and throughput, each with a p99
+budget) and **smoke** (the real executable, e.g. graceful shutdown). Tests use Swift Testing.
+
+```bash
+make test          # unit + contract + integration
+make coverage      # every suite with coverage; fails below the floor of any source target
+make test-report   # time per suite and the slowest tests
+make benchmark     # release-mode benchmarks; tables on screen, JSON in .artifacts/benchmarks
+```
+
+See the [testing guide](Documentation/Development/testing.md), the
+[performance guide](Documentation/Development/performance.md) (method, reference numbers and what measuring found) and
+[ADR-007](Documentation/ADR/ADR-007-testing-and-performance.md).
+
 ## Getting started
 
 ### Prerequisites
@@ -143,6 +161,9 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `make test-unit`    | Fast tests, no services                              |
 | `make test-contract`| The HTTP API against the OpenAPI document            |
 | `make test-integration` | Tests against a real PostgreSQL                  |
+| `make coverage`     | Every suite with coverage, enforcing a floor per target |
+| `make test-report`  | Time per suite and the slowest tests                 |
+| `make benchmark`    | Release-mode benchmarks with latency percentiles     |
 | `make migrate`      | Apply the database migrations locally                |
 | `make lint`         | SwiftLint in strict mode                             |
 | `make format`       | Format sources with `swift format`                   |
@@ -162,9 +183,12 @@ Tests/
   Unit/                    Fast tests with no external services
   Contract/                The HTTP API held to the OpenAPI document, over in-memory adapters
   Integration/             Persistence and the HTTP API against a real PostgreSQL
+  Performance/             Benchmarks (release builds); PerformanceSupport/ is the harness that measures them
   Support/, HTTPSupport/, IntegrationSupport/   Shared test fixtures and harnesses
 Documentation/API/         HTTP guide, OpenAPI document and error catalog
 Documentation/ADR/         Architecture decision records
+Documentation/Development/ Testing and performance guides
+Documentation/Operations/  Observability guide and runbooks
 Scripts/                   Developer and CI helper scripts
 ```
 

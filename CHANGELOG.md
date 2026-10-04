@@ -65,3 +65,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Error reporting to Sentry without an SDK: only infrastructure and unexpected failures, sampled and folded, carrying no
   caller data, delivered by a bounded background queue and flushed on shutdown.
 - Architecture decision record and operations guide for observability.
+- Benchmark harness and benchmarks with a warm-up, min, p50, p95, p99, max, mean, throughput and concurrency per
+  benchmark: every calculation operation, heavier operations over growing inputs, scaling across concurrency levels,
+  serialization, the HTTP stack (in memory and over loopback) and PostgreSQL (the repository and the whole service),
+  each with a p99 budget and a JSON artifact.
+- `make benchmark`, `make coverage` (a line-coverage floor per source target) and `make test-report` (time per suite
+  and the slowest tests), and `Scripts/compare-benchmarks.sh` to compare two benchmark runs.
+- Architecture decision record for testing and performance, and the testing and performance guides.
+
+### Changed
+
+- Decoding a request with a large array of numbers is about 25 times faster, and ordering calculation identifiers no
+  longer builds strings.
+- Rendering a log line is about 30 times faster: redaction inspects keys as bytes instead of lowercasing and splitting
+  them.
