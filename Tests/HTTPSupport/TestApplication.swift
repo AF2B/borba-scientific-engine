@@ -2,6 +2,8 @@ import BorbaScientificCore
 public import Foundation
 public import InMemoryLogging
 import Logging
+import Metrics
+import Prometheus
 import Synchronization
 public import TestSupport
 public import Vapor
@@ -151,6 +153,8 @@ public enum TestApplication {
         let events = RecordingEventPublisher()
         let clock = ManualClock(date: startDate)
         let logs = InMemoryLogHandler()
+        let metricsRegistry = PrometheusCollectorRegistry()
+        let metrics = EngineMetrics(factory: PrometheusMetricsFactory(registry: metricsRegistry))
 
         let variables = [EnvironmentVariable.databaseURL.rawValue: unusedDatabaseURL].merging(settings) { _, override in
             override
@@ -159,11 +163,17 @@ public enum TestApplication {
 
         let probe = ControllableProbe()
         let services = LiveServices.assemble(
-            repository: repository,
-            events: events,
-            clock: clock,
-            calculation: configuration.calculation,
-            probes: [probe]
+            ServiceInputs(
+                repository: repository,
+                events: FanOutEventPublisher(
+                    publishers: [events, InlineSubscriber(MetricsEventSubscriber(metrics: metrics))]
+                ),
+                clock: clock,
+                calculation: configuration.calculation,
+                metrics: metrics,
+                metricsRegistry: metricsRegistry,
+                probes: [probe]
+            )
         )
 
         return try await withApp { application in
@@ -201,5 +211,30 @@ extension TestTransport {
         case .network:
             .running(hostname: Self.loopback, port: Self.anyFreePort)
         }
+    }
+}
+
+/// Hands every event to several publishers, one after the other.
+struct FanOutEventPublisher: EventPublisher {
+    let publishers: [any EventPublisher]
+
+    func publish(_ event: CalculationEvent) async {
+        for publisher in publishers {
+            await publisher.publish(event)
+        }
+    }
+}
+
+/// Lets a subscriber see events inline, instead of through a dispatcher's queue, so a test can check its effect as soon as
+/// the request returns.
+struct InlineSubscriber: EventPublisher {
+    let subscriber: any EventSubscriber
+
+    init(_ subscriber: any EventSubscriber) {
+        self.subscriber = subscriber
+    }
+
+    func publish(_ event: CalculationEvent) async {
+        await subscriber.handle(event)
     }
 }

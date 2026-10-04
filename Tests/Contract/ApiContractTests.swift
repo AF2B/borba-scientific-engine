@@ -192,6 +192,57 @@ struct ApiContractTests {
         }
     }
 
+    @Test("publishes metrics that reflect what the service did, with bounded labels")
+    func publishesMetrics() async throws {
+        try await TestApplication.run { harness in
+            let created = try await harness.client.post(Self.calculationsPath, json: Self.add)
+            let identifier = try #require(created.json().at("id")?.text)
+            _ = try await harness.client.post(Self.calculationsPath, json: Self.divideByZero)
+            _ = try await harness.client.get("\(Self.calculationsPath)/\(identifier)")
+            _ = try await harness.client.get("/nowhere-1")
+            _ = try await harness.client.get("/nowhere-2")
+
+            let response = try await harness.client.get("/metrics")
+            let scrape = MetricsScrape(response.body)
+            let addLabels = ["module": "arithmetic", "operation": "add"]
+
+            #expect(response.status == .ok)
+            #expect(response.header("Content-Type")?.hasPrefix("text/plain; version=0.0.4") == true)
+            #expect(scrape.value("calculations_total", addLabels.merging(["status": "succeeded"]) { $1 }) == 1)
+            #expect(scrape.value("calculations_total", ["operation": "divide", "status": "failed"]) == 1)
+            #expect(scrape.value("calculation_failures_total", ["code": "DIVISION_BY_ZERO"]) == 1)
+            #expect(scrape.value("calculation_duration_seconds_count", addLabels) == 1)
+            #expect(
+                scrape.value(
+                    "http_requests_total",
+                    ["method": "POST", "route": "/api/v1/calculations", "status": "201"]
+                ) == 1
+            )
+            #expect(
+                scrape.value(
+                    "http_requests_total",
+                    ["method": "POST", "route": "/api/v1/calculations", "status": "422"]
+                ) == 1
+            )
+            #expect(
+                scrape.value(
+                    "http_requests_total",
+                    ["method": "GET", "route": "/api/v1/calculations/:id", "status": "200"]
+                ) == 1
+            )
+            #expect(
+                scrape.value("http_requests_total", ["method": "undefined", "route": "unmatched", "status": "404"])
+                    == 2,
+                "unknown paths share one series"
+            )
+            #expect(scrape.value("http_requests_in_flight") == 1, "the scrape itself is the only request in flight")
+            #expect(!response.body.contains(identifier), "an identifier is never a label")
+            #if os(Linux)
+                #expect((scrape.value("process_resident_memory_bytes") ?? 0) > 0)
+            #endif
+        }
+    }
+
     // MARK: - History, catalog and operations
 
     @Test("lists the history page by page and finds a calculation by identifier")

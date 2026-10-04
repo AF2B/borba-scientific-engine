@@ -1,5 +1,6 @@
 public import BorbaScientificCore
 import Foundation
+public import TestSupport
 public import Vapor
 import VaporTesting
 
@@ -56,6 +57,14 @@ public struct TestClient: Sendable {
         headers: [String: String] = [:]
     ) async throws -> TestResponse {
         try await send(.GET, path, headers: headers, body: nil)
+    }
+
+    /// Scrapes `/metrics`.
+    ///
+    /// - Returns: What the scrape contained.
+    /// - Throws: An error when the request could not be performed.
+    public func metrics() async throws -> MetricsScrape {
+        MetricsScrape(try await get("/metrics").body)
     }
 
     /// Sends a `POST` request with a JSON body.

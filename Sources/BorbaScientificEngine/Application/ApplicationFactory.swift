@@ -42,6 +42,7 @@ public enum ApplicationFactory {
         application.http.server.configuration.port = configuration.http.port
         application.routes.defaultMaxBodySize = ByteCount(value: configuration.http.maximumBodySizeBytes)
         application.http.server.configuration.shutdownTimeout = TimeAmount(configuration.http.shutdownTimeout)
+        application.http.server.configuration.reportMetrics = false
 
         configureMiddleware(application, services: services)
         try registerRoutes(application, with: configuration, services: services)
@@ -49,7 +50,7 @@ public enum ApplicationFactory {
     }
 
     /// Replaces Vapor's default error handling with the API's own and orders the middleware, outermost first: the
-    /// in-flight count, request identifiers, access log, security headers, error mapping.
+    /// in-flight count, request identifiers, access log, metrics, security headers, error mapping.
     private static func configureMiddleware(
         _ application: Application,
         services: EngineServices
@@ -58,6 +59,7 @@ public enum ApplicationFactory {
         application.middleware.use(InFlightMiddleware(requests: services.inFlight))
         application.middleware.use(RequestContextMiddleware(identifiers: services.identifiers))
         application.middleware.use(AccessLogMiddleware(clock: services.clock))
+        application.middleware.use(MetricsMiddleware(metrics: services.metrics, clock: services.clock))
         application.middleware.use(SecurityHeadersMiddleware())
         application.middleware.use(APIErrorMiddleware())
     }
@@ -70,7 +72,9 @@ public enum ApplicationFactory {
         try application.register(
             collection: OperationalRoutes(
                 version: versionResponse(for: configuration),
-                readiness: services.readiness
+                readiness: services.readiness,
+                metrics: services.metrics,
+                metricsRegistry: services.metricsRegistry
             )
         )
         try application.register(

@@ -13,8 +13,6 @@ import Vapor
 /// error mapping, so the status it reports is the one the client received.
 struct AccessLogMiddleware: AsyncMiddleware {
     private static let message = "Request completed"
-    private static let unmatchedRoute = "unmatched"
-    private static let routeSeparator = "/"
 
     /// Routes polled by machines, logged at debug level so they do not drown the lines that matter.
     private static let probeRoutes: Set<String> = ["/health", "/ready", "/metrics"]
@@ -57,7 +55,7 @@ struct AccessLogMiddleware: AsyncMiddleware {
         bytesSent: Int,
         startedAt: Duration
     ) {
-        let route = Self.routeTemplate(of: request)
+        let route = RouteLabel.template(of: request)
         let level: Logger.Level = Self.probeRoutes.contains(route) ? .debug : .info
 
         request.logger.log(
@@ -72,12 +70,5 @@ struct AccessLogMiddleware: AsyncMiddleware {
                 "response_bytes": .stringConvertible(bytesSent),
             ]
         )
-    }
-
-    private static func routeTemplate(of request: Request) -> String {
-        guard let route = request.route else {
-            return unmatchedRoute
-        }
-        return routeSeparator + route.path.map(\.description).joined(separator: routeSeparator)
     }
 }

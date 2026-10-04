@@ -2,10 +2,71 @@ import BorbaScientificCore
 import BorbaScientificPersistence
 import Fluent
 import FluentPostgresDriver
+import Foundation
+import Logging
+import Prometheus
 import Vapor
 
-/// Builds the production object graph: PostgreSQL behind a retrying decorator, the real clock, the standard calculation
-/// modules, an event dispatcher and the readiness checks.
+/// Everything the services are assembled from: PostgreSQL-backed adapters in production, in-memory ones in tests.
+struct ServiceInputs {
+    /// The calculation history store.
+    let repository: any CalculationRepository
+
+    /// Receives events about each calculation.
+    let events: any EventPublisher
+
+    /// The time source of timestamps, measurements and time budgets.
+    let clock: any EngineClock
+
+    /// The calculation limits.
+    let calculation: CalculationSettings
+
+    /// What must be up for the service to be ready.
+    let probes: [any ReadinessProbe]
+
+    /// The dispatcher behind `events`, when the services own it and must drain it on shutdown.
+    let eventDispatcher: EventDispatcher?
+
+    /// Records the metrics of the service.
+    let metrics: EngineMetrics
+
+    /// Holds the metrics, and is what `/metrics` publishes.
+    let metricsRegistry: PrometheusCollectorRegistry
+
+    /// Creates the inputs.
+    ///
+    /// - Parameters:
+    ///   - repository: The calculation history store.
+    ///   - events: Receives events about each calculation.
+    ///   - clock: The time source of timestamps, measurements and time budgets.
+    ///   - calculation: The calculation limits.
+    ///   - metrics: Records the metrics of the service.
+    ///   - metricsRegistry: Holds the metrics, and is what `/metrics` publishes.
+    ///   - probes: What must be up for the service to be ready.
+    ///   - eventDispatcher: The dispatcher behind `events`, if the services own it.
+    init(
+        repository: any CalculationRepository,
+        events: any EventPublisher,
+        clock: any EngineClock,
+        calculation: CalculationSettings,
+        metrics: EngineMetrics,
+        metricsRegistry: PrometheusCollectorRegistry,
+        probes: [any ReadinessProbe] = [],
+        eventDispatcher: EventDispatcher? = nil
+    ) {
+        self.repository = repository
+        self.events = events
+        self.clock = clock
+        self.calculation = calculation
+        self.metrics = metrics
+        self.metricsRegistry = metricsRegistry
+        self.probes = probes
+        self.eventDispatcher = eventDispatcher
+    }
+}
+
+/// Builds the production object graph: PostgreSQL behind a metering and a retrying decorator, the real clock, the
+/// standard calculation modules, an event dispatcher and the readiness checks.
 enum LiveServices {
     private static let readinessTimeToLiveSeconds = 1
     private static let readinessProbeTimeoutSeconds = 2
@@ -37,30 +98,18 @@ enum LiveServices {
         for application: Application,
         with configuration: AppConfiguration
     ) throws(RepositoryError) -> EngineServices {
-        let database = configuration.database
-        let settings = PostgresSettings(
-            url: database.url.reveal(),
-            applicationName: ServiceIdentity.name,
-            maximumConnectionsPerEventLoop: database.maximumConnectionsPerEventLoop,
-            connectionPoolTimeout: database.connectionPoolTimeout,
-            statementTimeout: database.statementTimeout
-        )
-        application.databases.use(try settings.makeConfiguration(), as: .psql)
-        application.migrations.add(PersistenceMigrations.all)
+        try registerDatabase(on: application, with: configuration)
 
         let clock = SystemClock()
         let logger = application.logger
+        let metricsRegistry = PrometheusCollectorRegistry()
+        let metrics = makeMetrics(over: metricsRegistry, for: configuration)
 
-        let repository = RetryingCalculationRepository(
-            base: FluentCalculationRepository(databases: application.databases, logger: logger),
-            policy: .standard,
-            clock: clock,
-            logger: logger
-        )
         let dispatcher = EventDispatcher(
-            subscribers: [LoggingEventSubscriber(logger: logger)],
+            subscribers: [LoggingEventSubscriber(logger: logger), MetricsEventSubscriber(metrics: metrics)],
             bufferSize: eventBufferSize,
-            logger: logger
+            logger: logger,
+            onDrop: { metrics.recordDroppedEvent(subscriber: $0) }
         )
         let health = DatabaseHealth(
             databases: application.databases,
@@ -71,64 +120,110 @@ enum LiveServices {
         )
 
         return assemble(
-            repository: repository,
-            events: dispatcher,
-            clock: clock,
-            calculation: configuration.calculation,
-            probes: [DatabaseReadinessProbe(health: health)],
-            eventDispatcher: dispatcher
+            ServiceInputs(
+                repository: makeRepository(on: application, metrics: metrics, clock: clock),
+                events: dispatcher,
+                clock: clock,
+                calculation: configuration.calculation,
+                metrics: metrics,
+                metricsRegistry: metricsRegistry,
+                probes: [DatabaseReadinessProbe(health: health)],
+                eventDispatcher: dispatcher
+            )
         )
     }
 
-    /// Assembles the services over any repository, which is how tests build the same graph with in-memory adapters.
+    /// Assembles the services over any adapters, which is how tests build the same graph in memory.
     ///
-    /// - Parameters:
-    ///   - repository: The calculation history store.
-    ///   - events: Receives events about each calculation.
-    ///   - clock: The time source of timestamps, measurements and time budgets.
-    ///   - calculation: The calculation limits.
-    ///   - probes: What must be up for the service to be ready.
-    ///   - eventDispatcher: The dispatcher behind `events`, when the services own it and must drain it on shutdown.
+    /// - Parameter inputs: The adapters and settings to assemble from.
     /// - Returns: The services the routes need.
-    static func assemble(
-        repository: any CalculationRepository,
-        events: any EventPublisher,
-        clock: any EngineClock,
-        calculation: CalculationSettings,
-        probes: [any ReadinessProbe] = [],
-        eventDispatcher: EventDispatcher? = nil
-    ) -> EngineServices {
+    static func assemble(_ inputs: ServiceInputs) -> EngineServices {
         let registry = ModuleRegistry.standard()
-        let identifiers = UUIDv7Generator(clock: clock)
+        let identifiers = UUIDv7Generator(clock: inputs.clock)
         let shutdown = ShutdownState()
+        let metrics = inputs.metrics
         let engine = CalculationEngine(
             registry: registry,
-            clock: clock,
-            timeout: calculation.timeout
+            clock: inputs.clock,
+            timeout: inputs.calculation.timeout
         )
 
         return EngineServices(
             calculations: CalculationService(
                 engine: engine,
-                repository: repository,
-                events: events,
-                clock: clock,
+                repository: inputs.repository,
+                events: inputs.events,
+                clock: inputs.clock,
                 identifiers: identifiers
             ),
-            history: CalculationHistory(repository: repository),
+            history: CalculationHistory(repository: inputs.repository),
             registry: registry,
             identifiers: identifiers,
-            clock: clock,
+            clock: inputs.clock,
+            metrics: metrics,
+            metricsRegistry: inputs.metricsRegistry,
             readiness: ReadinessService(
-                probes: probes,
+                probes: inputs.probes,
                 shutdown: shutdown,
                 timeToLive: readinessTimeToLive,
                 probeTimeout: readinessProbeTimeout,
-                clock: clock
+                clock: inputs.clock
             ),
             shutdown: shutdown,
-            inFlight: InFlightRequests(),
-            eventDispatcher: eventDispatcher
+            inFlight: InFlightRequests(onChange: { metrics.setRequestsInFlight($0) }),
+            eventDispatcher: inputs.eventDispatcher
+        )
+    }
+
+    private static func registerDatabase(
+        on application: Application,
+        with configuration: AppConfiguration
+    ) throws(RepositoryError) {
+        let database = configuration.database
+        let settings = PostgresSettings(
+            url: database.url.reveal(),
+            applicationName: ServiceIdentity.name,
+            maximumConnectionsPerEventLoop: database.maximumConnectionsPerEventLoop,
+            connectionPoolTimeout: database.connectionPoolTimeout,
+            statementTimeout: database.statementTimeout
+        )
+
+        application.databases.use(try settings.makeConfiguration(), as: .psql)
+        application.migrations.add(PersistenceMigrations.all)
+    }
+
+    private static func makeMetrics(
+        over registry: PrometheusCollectorRegistry,
+        for configuration: AppConfiguration
+    ) -> EngineMetrics {
+        let metrics = EngineMetrics(factory: PrometheusMetricsFactory(registry: registry))
+
+        metrics.setBuildInfo(
+            version: configuration.version.number,
+            commit: configuration.version.commit,
+            environment: configuration.environment.rawValue
+        )
+        metrics.setProcessGauge(MetricName.processStartTime, Date().timeIntervalSince1970)
+        return metrics
+    }
+
+    /// The history store: PostgreSQL, measured on every attempt, and retried where repeating is safe. The metering sits
+    /// under the retries so that a call that needed three tries shows up as three durations.
+    private static func makeRepository(
+        on application: Application,
+        metrics: EngineMetrics,
+        clock: any EngineClock
+    ) -> any CalculationRepository {
+        RetryingCalculationRepository(
+            base: MeteredCalculationRepository(
+                base: FluentCalculationRepository(databases: application.databases, logger: application.logger),
+                metrics: metrics,
+                clock: clock
+            ),
+            policy: .standard,
+            clock: clock,
+            logger: application.logger,
+            onRetry: { metrics.recordRetry(operation: $0) }
         )
     }
 }

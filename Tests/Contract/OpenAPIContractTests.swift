@@ -154,6 +154,7 @@ struct OpenAPIContractTests {
 
             try verify(try await client.get("/health"), method: "GET", template: "/health", expecting: .ok)
             try verify(try await client.get("/version"), method: "GET", template: "/version", expecting: .ok)
+            try verify(try await client.get("/metrics"), method: "GET", template: "/metrics", expecting: .ok)
 
             let created = try await client.post(Self.calculationsPath, json: Self.add, headers: key)
             try verify(created, method: "POST", template: Self.calculationsTemplate, expecting: .created)

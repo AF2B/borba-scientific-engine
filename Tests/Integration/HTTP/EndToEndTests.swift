@@ -19,6 +19,8 @@ struct EndToEndTests {
     private static let concurrentRetries = 8
     private static let batchSize = 25
     private static let pageSize = 4
+    private static let metricsPollAttempts = 100
+    private static let metricsPollInterval = Duration.milliseconds(20)
 
     private static let add: CalculationValue = [
         "module": "arithmetic",
@@ -119,6 +121,36 @@ struct EndToEndTests {
                 #expect(identifiers.count == Self.batchSize)
                 #expect(Set(identifiers).count == Self.batchSize)
                 #expect(timestamps == timestamps.sorted(by: >), "newest first")
+            }
+        }
+    }
+
+    @Test("measures the database calls, counts calculations and publishes the build")
+    func publishesLiveMetrics() async throws {
+        try await PostgresTestDatabase.withMigratedDatabase { database in
+            try await TestApplication.runLive(databaseURL: database.url) { harness in
+                _ = try await harness.client.post(Self.calculationsPath, json: Self.add)
+                _ = try await harness.client.get(Self.calculationsPath)
+
+                // Calculation metrics come from events, which are delivered asynchronously.
+                var scrape = try await harness.client.metrics()
+                for _ in 0..<Self.metricsPollAttempts
+                where scrape.value("calculations_total", ["status": "succeeded"]) == nil {
+                    try await Task.sleep(for: Self.metricsPollInterval)
+                    scrape = try await harness.client.metrics()
+                }
+
+                #expect(
+                    scrape.value(
+                        "calculations_total",
+                        ["module": "arithmetic", "operation": "add", "status": "succeeded"]
+                    ) == 1
+                )
+                #expect((scrape.value("database_operation_duration_seconds_count", ["operation": "save"]) ?? 0) >= 1)
+                #expect((scrape.value("database_operation_duration_seconds_count", ["operation": "list"]) ?? 0) >= 1)
+                #expect(scrape.count(named: "database_failures_total") == 0)
+                #expect(scrape.value("build_info", ["version": "0.0.0-dev", "environment": "development"]) == 1)
+                #expect((scrape.value("process_start_time_seconds") ?? 0) > 0)
             }
         }
     }

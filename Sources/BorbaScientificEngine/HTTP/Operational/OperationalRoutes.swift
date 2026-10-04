@@ -1,9 +1,11 @@
+import Prometheus
 import Vapor
 
 /// Route paths of the operational endpoints, which are deliberately not versioned: orchestrators and monitors depend
 /// on them and must not have to follow API versions.
 enum OperationalPath {
     static let health: PathComponent = "health"
+    static let metrics: PathComponent = "metrics"
     static let ready: PathComponent = "ready"
     static let version: PathComponent = "version"
 }
@@ -93,25 +95,38 @@ struct VersionResponse: Encodable, Sendable {
 
 /// Endpoints used by orchestrators and operators rather than by API consumers.
 struct OperationalRoutes: RouteCollection {
+    /// The media type of the Prometheus text exposition format.
+    private static let prometheusMediaType = "text/plain; version=0.0.4; charset=utf-8"
+
     private let version: VersionResponse
     private let readiness: ReadinessService
+    private let metrics: EngineMetrics
+    private let metricsRegistry: PrometheusCollectorRegistry
+    private let processMetrics = ProcessMetricsRecorder()
 
     /// Creates the routes.
     ///
     /// - Parameters:
     ///   - version: What `/version` reports.
     ///   - readiness: Answers `/ready`.
+    ///   - metrics: Records the process-level metrics just before they are published.
+    ///   - metricsRegistry: Holds the metrics `/metrics` publishes.
     init(
         version: VersionResponse,
-        readiness: ReadinessService
+        readiness: ReadinessService,
+        metrics: EngineMetrics,
+        metricsRegistry: PrometheusCollectorRegistry
     ) {
         self.version = version
         self.readiness = readiness
+        self.metrics = metrics
+        self.metricsRegistry = metricsRegistry
     }
 
     func boot(routes: any RoutesBuilder) throws {
         routes.get(OperationalPath.health, use: liveness)
         routes.get(OperationalPath.ready, use: readinessReport)
+        routes.get(OperationalPath.metrics, use: metricsExposition)
         routes.get(OperationalPath.version, use: versionInformation)
     }
 
@@ -144,6 +159,22 @@ struct OperationalRoutes: RouteCollection {
             ReadinessResponse(report),
             status: report.isReady ? .ok : .serviceUnavailable
         )
+    }
+
+    /// Publishes every metric of the service in the Prometheus text format, for a scraper to collect.
+    ///
+    /// The process-level gauges are read just before publishing, so they are as fresh as the scrape. The endpoint exposes
+    /// operational detail and belongs behind the network boundary, not on the public internet.
+    ///
+    /// - Parameter request: The incoming request.
+    /// - Returns: The metrics as text.
+    @Sendable
+    private func metricsExposition(_ request: Request) -> Response {
+        processMetrics.refresh(into: metrics)
+
+        var headers = HTTPHeaders()
+        headers.replaceOrAdd(name: .contentType, value: Self.prometheusMediaType)
+        return Response(status: .ok, headers: headers, body: .init(string: metricsRegistry.emitToString()))
     }
 
     /// Reports which build is running.

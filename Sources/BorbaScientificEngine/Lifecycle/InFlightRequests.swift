@@ -13,6 +13,14 @@ final class InFlightRequests: Sendable {
     }
 
     private let state = Mutex(State())
+    private let onChange: @Sendable (Int) -> Void
+
+    /// Creates a counter.
+    ///
+    /// - Parameter onChange: Told the new count every time it changes, such as to publish it as a gauge.
+    init(onChange: @escaping @Sendable (Int) -> Void = { _ in }) {
+        self.onChange = onChange
+    }
 
     /// How many requests are being served right now.
     var active: Int {
@@ -21,19 +29,25 @@ final class InFlightRequests: Sendable {
 
     /// Records that a request started.
     func begin() {
-        state.withLock { $0.active += 1 }
+        onChange(
+            state.withLock { state -> Int in
+                state.active += 1
+                return state.active
+            }
+        )
     }
 
     /// Records that a request finished, and wakes whoever waits for the service to go idle when it was the last one.
     func end() {
-        let released = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let (remaining, released) = state.withLock { state -> (Int, [CheckedContinuation<Void, Never>]) in
             state.active -= 1
             guard state.active == 0 else {
-                return []
+                return (state.active, [])
             }
             defer { state.waiters = [] }
-            return state.waiters
+            return (0, state.waiters)
         }
+        onChange(remaining)
         released.forEach { $0.resume() }
     }
 

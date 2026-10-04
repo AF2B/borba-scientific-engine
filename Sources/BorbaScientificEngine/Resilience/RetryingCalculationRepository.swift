@@ -19,6 +19,7 @@ struct RetryingCalculationRepository: CalculationRepository {
     private let clock: any EngineClock
     private let logger: Logger
     private let randomFraction: @Sendable () -> Double
+    private let onRetry: @Sendable (String) -> Void
 
     /// Creates the decorator.
     ///
@@ -28,13 +29,16 @@ struct RetryingCalculationRepository: CalculationRepository {
     ///   - clock: Measures the waits.
     ///   - logger: Reports every retry.
     ///   - randomFraction: Supplies the jitter, a number between 0 and 1.
+    ///   - onRetry: Told, with the name of the call, every time one is repeated.
     init(
         base: any CalculationRepository,
         policy: RetryPolicy,
         clock: any EngineClock,
         logger: Logger,
-        randomFraction: @escaping @Sendable () -> Double = { Double.random(in: 0...1) }
+        randomFraction: @escaping @Sendable () -> Double = { Double.random(in: 0...1) },
+        onRetry: @escaping @Sendable (String) -> Void = { _ in }
     ) {
+        self.onRetry = onRetry
         self.base = base
         self.policy = policy
         self.clock = clock
@@ -114,6 +118,7 @@ struct RetryingCalculationRepository: CalculationRepository {
                     throw failure
                 }
 
+                onRetry(operation)
                 let delay = policy.delay(afterAttempt: attemptNumber, fraction: randomFraction())
                 logger.warning(
                     "Repository call failed; retrying",

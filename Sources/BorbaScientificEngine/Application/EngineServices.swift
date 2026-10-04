@@ -1,4 +1,5 @@
 import BorbaScientificCore
+import Prometheus
 
 /// The services the HTTP layer talks to, assembled once at startup and handed to the routes explicitly.
 ///
@@ -19,6 +20,12 @@ struct EngineServices: Sendable {
 
     /// The time source of timestamps and measurements.
     let clock: any EngineClock
+
+    /// Records the metrics of the service.
+    let metrics: EngineMetrics
+
+    /// Holds every metric, and is what `/metrics` publishes.
+    let metricsRegistry: PrometheusCollectorRegistry
 
     /// Answers whether the service should be sent traffic.
     let readiness: ReadinessService

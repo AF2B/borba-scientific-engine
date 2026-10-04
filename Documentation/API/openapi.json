@@ -38,6 +38,21 @@
         }
       }
     },
+    "/metrics": {
+      "get": {
+        "tags": ["Operations"],
+        "operationId": "getMetrics",
+        "summary": "Metrics",
+        "description": "Every metric of the service in the Prometheus text exposition format (version 0.0.4), for a scraper to collect: HTTP request rate, errors and duration by method, route template and status; calculations by module, operation and outcome with their durations and failure codes; database call durations and failures; retries; dropped events; error-report outcomes; requests in flight; and process memory, CPU and file descriptors.\n\nEvery label has a small, bounded set of values (route templates, not paths; registry-validated module and operation names; catalog error codes). The endpoint exposes operational detail and belongs behind the network boundary, not on the public internet.",
+        "responses": {
+          "200": {
+            "description": "The metrics, as Prometheus text.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "text/plain": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
     "/ready": {
       "get": {
         "tags": ["Operations"],

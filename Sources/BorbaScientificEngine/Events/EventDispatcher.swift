@@ -29,6 +29,7 @@ actor EventDispatcher: EventPublisher {
 
     private let channels: [Channel]
     private let logger: Logger
+    private let onDrop: @Sendable (String) -> Void
     private var dropped: [String: Int] = [:]
     private var isStopped = false
 
@@ -38,12 +39,15 @@ actor EventDispatcher: EventPublisher {
     ///   - subscribers: Who receives the events.
     ///   - bufferSize: How many undelivered events each subscriber may have queued before its oldest are dropped.
     ///   - logger: Where drops and shutdown problems are reported.
+    ///   - onDrop: Told, with the subscriber's name, about every event that is dropped.
     init(
         subscribers: [any EventSubscriber],
         bufferSize: Int,
-        logger: Logger
+        logger: Logger,
+        onDrop: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.logger = logger
+        self.onDrop = onDrop
         channels = subscribers.map { subscriber in
             let (stream, continuation) = AsyncStream.makeStream(
                 of: CalculationEvent.self,
@@ -122,6 +126,7 @@ actor EventDispatcher: EventPublisher {
     private func recordDrop(for subscriber: String) {
         let count = dropped[subscriber, default: 0] + 1
         dropped[subscriber] = count
+        onDrop(subscriber)
 
         if count == 1 || count.isMultiple(of: Self.dropLogInterval) {
             logger.warning(
