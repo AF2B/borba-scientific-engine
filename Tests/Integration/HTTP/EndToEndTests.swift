@@ -123,6 +123,26 @@ struct EndToEndTests {
         }
     }
 
+    @Test("reports ready once the schema is migrated, and names the problem when it is not")
+    func readinessFollowsTheDatabase() async throws {
+        try await PostgresTestDatabase.withEmptyDatabase { database in
+            try await TestApplication.runLive(databaseURL: database.url) { harness in
+                let pending = try await harness.client.get("/ready")
+
+                #expect(pending.status == .serviceUnavailable)
+                #expect(try pending.json().at("checks", 0, "detail") == "migrations pending")
+            }
+        }
+        try await PostgresTestDatabase.withMigratedDatabase { database in
+            try await TestApplication.runLive(databaseURL: database.url) { harness in
+                let ready = try await harness.client.get("/ready")
+
+                #expect(ready.status == .ok)
+                #expect(try ready.json().at("checks", 0, "status") == "up")
+            }
+        }
+    }
+
     @Test("answers 503 without leaking the database when the history is unreachable, and stays alive")
     func survivesAnUnreachableDatabase() async throws {
         let unreachable = "postgres://engine:secret-password@127.0.0.1:1/hidden_database_name"
@@ -132,7 +152,11 @@ struct EndToEndTests {
             let calculation = try await harness.client.post(Self.calculationsPath, json: Self.add)
             let history = try await harness.client.get(Self.calculationsPath)
             let health = try await harness.client.get("/health")
+            let ready = try await harness.client.get("/ready")
 
+            #expect(ready.status == .serviceUnavailable)
+            #expect(try ready.json().at("checks", 0, "detail") == "unreachable")
+            #expect(!ready.body.contains("127.0.0.1"))
             #expect(calculation.status == .serviceUnavailable)
             #expect(try calculation.json().at("error", "code") == "STORAGE_UNAVAILABLE")
             #expect(history.status == .serviceUnavailable)

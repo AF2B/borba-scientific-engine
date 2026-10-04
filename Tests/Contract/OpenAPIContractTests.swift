@@ -20,6 +20,7 @@ struct OpenAPIContractTests {
     private static let oversizedBodyBytes = 2_048
     private static let smallestBodyLimit = "1024"
     private static let smallestBatchLimit = "2"
+    private static let readinessLifetime = Duration.seconds(2)
 
     private static let add: CalculationValue = [
         "module": "arithmetic",
@@ -267,6 +268,33 @@ struct OpenAPIContractTests {
                 template: Self.operationTemplate,
                 expecting: .notFound
             )
+        }
+    }
+
+    @Test("reports readiness in the documented shape: ready, database down, and shutting down")
+    func readinessConforms() async throws {
+        try await TestApplication.run { harness in
+            let ready = try await harness.client.get("/ready")
+            try verify(ready, method: "GET", template: "/ready", expecting: .ok)
+            #expect(try ready.json().at("status") == "ready")
+            #expect(try ready.json().at("checks", 0, "name") == "database")
+
+            harness.setDatabaseReady(false)
+            harness.clock.advance(by: Self.readinessLifetime)
+            let down = try await harness.client.get("/ready")
+            try verify(down, method: "GET", template: "/ready", expecting: .serviceUnavailable)
+            #expect(try down.json().at("status") == "not_ready")
+            #expect(try down.json().at("checks", 0, "detail") == "unreachable")
+
+            harness.setDatabaseReady(true)
+            harness.clock.advance(by: Self.readinessLifetime)
+            #expect(try await harness.client.get("/ready").status == .ok)
+
+            harness.beginShutdown()
+            let stopping = try await harness.client.get("/ready")
+            try verify(stopping, method: "GET", template: "/ready", expecting: .serviceUnavailable)
+            #expect(try stopping.json().at("checks", 0, "detail") == "shutting down")
+            #expect(try await harness.client.get("/health").status == .ok, "liveness is unaffected by shutdown")
         }
     }
 
