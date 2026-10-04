@@ -48,3 +48,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Settings for the calculation time budget, batch size and concurrency, and the database statement timeout.
 - `migrate` service in the Compose stack (the API starts only after it succeeds), plus `make migrate` and
   `make test-contract`.
+- `GET /ready`: readiness that depends on the database and its migrations, shares one check between concurrent probes,
+  caches the answer for a second, bounds every probe in time and reports "shutting down" at once.
+- Event dispatcher that delivers calculation events to subscribers through bounded per-subscriber queues, so an observer
+  can never slow a request down.
+- Retries of repository calls that failed because the store was unreachable, only where repeating is safe (reads and
+  saves that carry an idempotency key), with exponential backoff and full jitter.
+- Graceful shutdown: readiness flips when the signal arrives, accepted requests finish before the database pool closes,
+  event subscribers drain, and the process exits with status 0. `make smoke-shutdown` verifies it against the real
+  executable.
+- Architecture decision record for concurrency and lifecycle.

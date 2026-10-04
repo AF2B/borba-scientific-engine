@@ -88,6 +88,10 @@ test-unit: ## Run the unit tests (no external services required)
 test-contract: ## Run the HTTP contract tests against the OpenAPI document (in-memory adapters, no services needed)
 	$(SWIFT) test --filter ContractTests
 
+.PHONY: smoke-shutdown
+smoke-shutdown: build migrate ## Check graceful shutdown: SIGTERM with requests in flight must drop none of them
+	DATABASE_URL="$(DATABASE_URL)" Scripts/smoke-graceful-shutdown.sh
+
 .PHONY: test-integration
 test-integration: db-up ## Run the integration tests against a real PostgreSQL (starts it when needed)
 	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" $(SWIFT) test --filter IntegrationTests
