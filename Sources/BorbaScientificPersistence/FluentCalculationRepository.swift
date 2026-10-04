@@ -22,6 +22,8 @@ import SQLKit
 public struct FluentCalculationRepository: CalculationRepository {
     private struct KeyAlreadyClaimed: Error {}
 
+    private static let microsecondsPerSecond = 1_000_000.0
+
     private let databases: Databases
     private let databaseID: DatabaseID
     private let logger: Logger
@@ -225,6 +227,21 @@ public struct FluentCalculationRepository: CalculationRepository {
         ).first(decoding: CalculationRow.self)
     }
 
+    /// An instant as SQL that reaches the database exactly.
+    ///
+    /// Binding a `Date` would leave the conversion to the driver, which truncates a floating-point number of
+    /// microseconds, so an instant that a double cannot hold exactly lands one microsecond early and a cursor stops
+    /// matching the row it came from. The instant is therefore sent as whole microseconds since the Unix epoch, which
+    /// the database turns into a timestamp without any floating-point step.
+    ///
+    /// - Parameter date: The instant.
+    /// - Returns: A `timestamptz` expression.
+    private static func timestamp(_ date: Date) -> SQLQueryString {
+        let microseconds = Int64((date.timeIntervalSince1970 * microsecondsPerSecond).rounded())
+
+        return "('epoch'::timestamptz + \(bind: microseconds) * interval '1 microsecond')"
+    }
+
     private static func listQuery(
         filter: HistoryFilter,
         page: BorbaScientificCore.PageRequest
@@ -240,14 +257,14 @@ public struct FluentCalculationRepository: CalculationRepository {
             conditions.append("status = \(bind: status.rawValue)")
         }
         if let createdFrom = filter.createdFrom {
-            conditions.append("created_at >= \(bind: createdFrom)")
+            conditions.append("created_at >= \(timestamp(createdFrom))")
         }
         if let createdBefore = filter.createdBefore {
-            conditions.append("created_at < \(bind: createdBefore)")
+            conditions.append("created_at < \(timestamp(createdBefore))")
         }
         if let cursor = page.cursor {
             // A row-value comparison lets PostgreSQL seek straight to the cursor in the (created_at, id) index.
-            conditions.append("(created_at, id) < (\(bind: cursor.createdAt), \(bind: cursor.id.rawValue))")
+            conditions.append("(created_at, id) < (\(timestamp(cursor.createdAt)), \(bind: cursor.id.rawValue))")
         }
 
         let whereClause: SQLQueryString =

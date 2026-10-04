@@ -81,6 +81,7 @@ public enum RepositoryContract {
         try await convergesConcurrentRetries(makeRepository())
         try await listsNewestFirstAndPaginates(makeRepository())
         try await breaksTiesByIdentifier(makeRepository())
+        try await paginatesTimestampsThatAreNotWholeMilliseconds(makeRepository())
         try await filtersHistory(makeRepository())
     }
 
@@ -192,6 +193,45 @@ public enum RepositoryContract {
         #expect(first.items.map(\.id) == [RecordFixtures.id(4), RecordFixtures.id(3)])
         #expect(second.items.map(\.id) == [RecordFixtures.id(2), RecordFixtures.id(1)])
         #expect(second.nextCursor == nil)
+    }
+
+    /// Real timestamps are not whole milliseconds, and a double cannot hold most microsecond values exactly. A cursor
+    /// built from such an instant must still land exactly on the row it came from, or rows that share its timestamp
+    /// are skipped or repeated.
+    static func paginatesTimestampsThatAreNotWholeMilliseconds(_ repository: some CalculationRepository) async throws {
+        let groups = 12
+        let recordsPerGroup = 5
+        let microsecondsBetweenGroups = 137
+        let pageSize = 3
+
+        for group in 0..<groups {
+            for member in 1...recordsPerGroup {
+                _ = try await repository.save(
+                    RecordFixtures.record(
+                        sequence: group * recordsPerGroup + member,
+                        offset: .microseconds(group * microsecondsBetweenGroups)
+                    ),
+                    claiming: nil
+                )
+            }
+        }
+
+        let total = groups * recordsPerGroup
+        var collected: [CalculationID] = []
+        var cursor: PageCursor?
+        repeat {
+            let page = try await repository.list(
+                matching: HistoryFilter(),
+                page: PageRequest(limit: pageSize, cursor: cursor)
+            )
+            collected.append(contentsOf: page.items.map(\.id))
+            cursor = page.nextCursor
+        } while cursor != nil && collected.count <= total
+
+        #expect(
+            collected == (1...total).reversed().map(RecordFixtures.id),
+            "every record must be listed exactly once, whatever the sub-millisecond part of its timestamp"
+        )
     }
 
     static func filtersHistory(_ repository: some CalculationRepository) async throws {
