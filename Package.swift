@@ -120,11 +120,17 @@ let package = Package(
             path: "Tests/HTTPSupport",
             swiftSettings: strictSwiftSettings
         ),
+        .target(
+            name: "PerformanceSupport",
+            path: "Tests/PerformanceSupport",
+            swiftSettings: strictSwiftSettings
+        ),
         .testTarget(
             name: "UnitTests",
             dependencies: [
                 "BorbaScientificCore",
                 "BorbaScientificEngine",
+                "PerformanceSupport",
                 "TestSupport",
                 .product(name: "InMemoryLogging", package: "swift-log"),
                 .product(name: "Logging", package: "swift-log"),
@@ -151,6 +157,23 @@ let package = Package(
                 .product(name: "VaporTesting", package: "vapor"),
             ],
             path: "Tests/Contract",
+            swiftSettings: strictSwiftSettings
+        ),
+        .testTarget(
+            name: "PerformanceTests",
+            dependencies: [
+                "BorbaScientificCore",
+                "BorbaScientificEngine",
+                "BorbaScientificPersistence",
+                "HTTPSupport",
+                "IntegrationSupport",
+                "PerformanceSupport",
+                "TestSupport",
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Vapor", package: "vapor"),
+                .product(name: "VaporTesting", package: "vapor"),
+            ],
+            path: "Tests/Performance",
             swiftSettings: strictSwiftSettings
         ),
         .testTarget(

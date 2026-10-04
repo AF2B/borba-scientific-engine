@@ -1,4 +1,4 @@
-import BorbaScientificCore
+public import BorbaScientificCore
 public import Foundation
 public import InMemoryLogging
 import Logging
@@ -181,12 +181,50 @@ public enum TestApplication {
     /// The instant the manual clock starts at: 2026-10-03T12:00:00Z.
     public static let startDate = Date(timeIntervalSince1970: 1_791_028_800)
 
+    /// How long a serving test's server waits for connections to close when it stops.
+    private static let servingShutdownTimeoutMilliseconds: Int64 = 100
+
     /// Test applications are small and many run at once against one PostgreSQL, so each opens as few connections per event
     /// loop as it can, instead of exhausting the server's connection limit.
     private static let connectionsPerEventLoop = 1
 
     /// A database URL that satisfies configuration validation. The in-memory stack never connects to it.
     private static let unusedDatabaseURL = "postgres://engine:unused@localhost:5432/engine"
+
+    /// Runs a test against an application that is really listening on a free local port, over in-memory adapters, for
+    /// callers that need to talk to it with a real HTTP client — benchmarks, mostly.
+    ///
+    /// Unlike ``TestTransport/network``, which starts and stops the server around every request, the server here stays up
+    /// for the whole test, so connections are reused as they would be in production.
+    ///
+    /// - Parameters:
+    ///   - engineClock: The clock the engine measures with; defaults to the manual clock.
+    ///   - test: The test body, given the application and the base URL of the server, such as `http://127.0.0.1:49152`.
+    /// - Returns: Whatever the test returns.
+    /// - Throws: Anything the test throws, or a failure to configure, start or shut down the application.
+    @discardableResult
+    public static func runServing<Result>(
+        engineClock: (any EngineClock)? = nil,
+        _ test: (Application, String) async throws -> Result
+    ) async throws -> Result {
+        try await run(engineClock: engineClock) { harness in
+            let application = harness.application
+            application.http.server.configuration.shutdownTimeout = .milliseconds(servingShutdownTimeoutMilliseconds)
+            try await application.server.start(
+                address: .hostname(TestTransport.loopback, port: TestTransport.anyFreePort)
+            )
+            let port = application.http.server.shared.localAddress?.port ?? TestTransport.anyFreePort
+
+            do {
+                let result = try await test(application, "http://\(TestTransport.loopback):\(port)")
+                await application.server.shutdown()
+                return result
+            } catch {
+                await application.server.shutdown()
+                throw error
+            }
+        }
+    }
 
     /// Runs a test against the production wiring — real database, real clock — and shuts the application down
     /// afterwards.
@@ -231,6 +269,8 @@ public enum TestApplication {
     /// - Parameters:
     ///   - settings: Environment variables that override the test configuration, such as `BATCH_MAX_SIZE`.
     ///   - transport: How requests reach the application.
+    ///   - engineClock: The clock the engine measures with, instead of the manual one. Benchmarks pass the system clock, so
+    ///     that what they measure is what production does.
     ///   - test: The test body.
     /// - Returns: Whatever the test returns.
     /// - Throws: Anything the test throws, or a failure to configure or shut down the application.
@@ -238,6 +278,7 @@ public enum TestApplication {
     public static func run<Result>(
         settings: [String: String] = [:],
         transport: TestTransport = .inMemory,
+        engineClock: (any EngineClock)? = nil,
         _ test: (TestHarness) async throws -> Result
     ) async throws -> Result {
         let repository = InMemoryCalculationRepository()
@@ -260,7 +301,7 @@ public enum TestApplication {
                 events: FanOutEventPublisher(
                     publishers: [events, InlineSubscriber(MetricsEventSubscriber(metrics: metrics))]
                 ),
-                clock: clock,
+                clock: engineClock ?? clock,
                 calculation: configuration.calculation,
                 metrics: metrics,
                 metricsRegistry: metricsRegistry,
