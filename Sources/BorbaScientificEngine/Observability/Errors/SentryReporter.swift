@@ -71,8 +71,19 @@ final class SentryReporter: ErrorReporter, Sendable {
             random: random
         )
         worker = Task {
+            var undelivered = 0
+
             for await failure in stream {
-                await pipeline.process(failure)
+                guard await pipeline.process(failure) == .failed else {
+                    continue
+                }
+                undelivered += 1
+                if undelivered == 1 || undelivered.isMultiple(of: SentryReporter.failureLogInterval) {
+                    logger.warning(
+                        "Error reports could not be delivered to the tracker",
+                        metadata: ["undelivered_total": "\(undelivered)"]
+                    )
+                }
             }
         }
     }
@@ -124,28 +135,33 @@ final class SentryReporter: ErrorReporter, Sendable {
         let logger: Logger
         let random: @Sendable () -> Double
 
-        func process(_ failure: ReportableFailure) async {
+        /// Decides what to do with a failure and does it.
+        ///
+        /// - Parameter failure: The failure.
+        /// - Returns: What happened to it, or `nil` when it was never a candidate for reporting.
+        func process(_ failure: ReportableFailure) async -> ErrorReportOutcome? {
             guard failure.classification.isReportable else {
-                return
+                return nil
             }
             if failure.classification == .infrastructure, random() >= settings.sampleRate {
                 metrics.recordErrorReport(.sampled)
-                return
+                return .sampled
             }
 
             let kind = "\(failure.code.rawValue)|\(failure.route)"
             switch await throttle.admit(kind: kind) {
             case .send(let repeats):
-                await send(failure, repeats: repeats)
+                return await send(failure, repeats: repeats)
             case .suppress, .overLimit:
                 metrics.recordErrorReport(.throttled)
+                return .throttled
             }
         }
 
         private func send(
             _ failure: ReportableFailure,
             repeats: Int
-        ) async {
+        ) async -> ErrorReportOutcome {
             let eventID = identifiers.next().uuidString.replacing("-", with: "").lowercased()
             guard
                 let envelope = try? SentryEnvelope.make(
@@ -157,11 +173,12 @@ final class SentryReporter: ErrorReporter, Sendable {
                 )
             else {
                 metrics.recordErrorReport(.failed)
-                return
+                return .failed
             }
 
             let outcome = await deliver(envelope)
             metrics.recordErrorReport(outcome)
+            return outcome
         }
 
         /// Delivers an envelope within the time limit. The delivery is raced against the clock instead of grouped with it,

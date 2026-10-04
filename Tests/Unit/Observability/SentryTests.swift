@@ -1,5 +1,6 @@
 import BorbaScientificCore
 import Foundation
+import InMemoryLogging
 import Logging
 import Metrics
 import Prometheus
@@ -320,6 +321,7 @@ struct SentryReporterTests {
         queueSize: Int = 100,
         transport: RecordingTransport = RecordingTransport(),
         limitPerWindow: Int = 100,
+        logs: InMemoryLogHandler = InMemoryLogHandler(),
         random: @escaping @Sendable () -> Double = { 0 }
     ) -> Fixture {
         let clock = ManualClock()
@@ -336,7 +338,11 @@ struct SentryReporterTests {
             clock: clock,
             identifiers: SequentialIdentifiers(),
             metrics: EngineMetrics(factory: PrometheusMetricsFactory(registry: registry)),
-            logger: Logger(label: "test"),
+            logger: Logger(label: "test") { _ in
+                var handler = logs
+                handler.logLevel = .trace
+                return handler
+            },
             random: random
         )
         return Fixture(reporter: reporter, transport: transport, clock: clock, registry: registry)
@@ -401,6 +407,21 @@ struct SentryReporterTests {
         await fixture.waitUntilCounted("failed", 2)
 
         #expect(fixture.transport.envelopes.count == 2)
+    }
+
+    @Test("warns once when delivery starts failing, and not for every report that follows")
+    func warnsAboutDeliveryProblems() async {
+        let logs = InMemoryLogHandler()
+        let fixture = fixture(transport: RecordingTransport(failing: .unreachable), logs: logs)
+
+        for index in 0..<4 {
+            fixture.reporter.report(failure(route: "/\(index)"))
+        }
+        await fixture.waitUntilCounted("failed", 4)
+
+        let warnings = logs.entries.filter { $0.level == .warning }
+        #expect(warnings.count == 1)
+        #expect(warnings.first?.metadata["undelivered_total"] == "1")
     }
 
     @Test("gives up on a delivery that takes too long, instead of stalling every report behind it")
