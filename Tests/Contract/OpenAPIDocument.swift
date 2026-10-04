@@ -5,7 +5,7 @@ import TestSupport
 @testable import BorbaScientificEngine
 
 /// The published OpenAPI document, loaded so the tests can hold the running API to it.
-struct OpenAPIDocument {
+struct OpenAPIDocument: Sendable {
     private static let repositoryDepthFromThisFile = 3
     private static let documentPath = "Documentation/API/openapi.json"
     private static let referencePrefix = "#/"
@@ -29,6 +29,12 @@ struct OpenAPIDocument {
     /// - Returns: The document.
     /// - Throws: An error when the file is missing or is not JSON.
     static func load() throws -> OpenAPIDocument {
+        try cached.get()
+    }
+
+    /// The document is read once for the whole test run: dozens of tests consult it, and parsing it each time made the
+    /// slowest test of the suite spend most of its three seconds reading one file.
+    private static let cached = Result<OpenAPIDocument, any Error> {
         let data = try Data(contentsOf: repositoryRoot.appendingPathComponent(documentPath))
 
         return OpenAPIDocument(root: try JSONDecoder().decode(CalculationValue.self, from: data))
