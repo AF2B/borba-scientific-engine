@@ -17,6 +17,9 @@ struct EngineServices: Sendable {
     /// Creates request identifiers.
     let identifiers: any IdentifierGenerator
 
+    /// The time source of timestamps and measurements.
+    let clock: any EngineClock
+
     /// Answers whether the service should be sent traffic.
     let readiness: ReadinessService
 

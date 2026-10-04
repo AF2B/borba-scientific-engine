@@ -28,7 +28,7 @@ extension ErrorDescription {
     func log(to logger: Logger) {
         var metadata: Logger.Metadata = [
             "error_code": "\(code.rawValue)",
-            "status": "\(status.code)",
+            "status": .stringConvertible(Int(status.code)),
             "classification": "\(classification)",
         ]
         if let diagnostic {

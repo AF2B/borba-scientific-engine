@@ -49,7 +49,7 @@ public enum ApplicationFactory {
     }
 
     /// Replaces Vapor's default error handling with the API's own and orders the middleware, outermost first: the
-    /// in-flight count, request identifiers, security headers, error mapping.
+    /// in-flight count, request identifiers, access log, security headers, error mapping.
     private static func configureMiddleware(
         _ application: Application,
         services: EngineServices
@@ -57,6 +57,7 @@ public enum ApplicationFactory {
         application.middleware = Middlewares()
         application.middleware.use(InFlightMiddleware(requests: services.inFlight))
         application.middleware.use(RequestContextMiddleware(identifiers: services.identifiers))
+        application.middleware.use(AccessLogMiddleware(clock: services.clock))
         application.middleware.use(SecurityHeadersMiddleware())
         application.middleware.use(APIErrorMiddleware())
     }

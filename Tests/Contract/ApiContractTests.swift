@@ -1,5 +1,6 @@
 import BorbaScientificCore
 import HTTPSupport
+import InMemoryLogging
 import TestSupport
 import Testing
 import Vapor
@@ -161,6 +162,33 @@ struct ApiContractTests {
                 #expect(response.header("X-Content-Type-Options") == "nosniff")
                 #expect(response.header("Cache-Control") == "no-store")
             }
+        }
+    }
+
+    @Test("writes one access line per request, with the route template, the status and the request identifier")
+    func writesAccessLines() async throws {
+        try await TestApplication.run { harness in
+            let created = try await harness.client.post(Self.calculationsPath, json: Self.add)
+            let identifier = try #require(created.json().at("id")?.text)
+            _ = try await harness.client.get("\(Self.calculationsPath)/\(identifier)")
+            _ = try await harness.client.get("/health")
+            _ = try await harness.client.get("/nowhere")
+
+            let lines = harness.logs.entries.filter { $0.message == "Request completed" }
+            func line(_ method: String, _ route: String) -> InMemoryLogHandler.Entry? {
+                lines.first {
+                    $0.metadata["method"]?.description == method && $0.metadata["route"]?.description == route
+                }
+            }
+
+            let post = try #require(line("POST", "/api/v1/calculations"))
+            #expect(post.metadata["status"]?.description == "201")
+            #expect(post.metadata[TraceMetadataKey.requestID] == .string(try #require(created.header("X-Request-ID"))))
+            #expect(post.level == .info)
+            #expect(line("GET", "/api/v1/calculations/:id") != nil, "the identifier is not a log dimension")
+            #expect(lines.allSatisfy { !$0.metadata.values.map(\.description).joined().contains(identifier) })
+            #expect(line("GET", "/health")?.level == .debug, "probes are logged at debug level")
+            #expect(line("GET", "unmatched")?.metadata["status"]?.description == "404")
         }
     }
 

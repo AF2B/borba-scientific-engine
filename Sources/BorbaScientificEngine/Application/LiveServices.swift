@@ -118,6 +118,7 @@ enum LiveServices {
             history: CalculationHistory(repository: repository),
             registry: registry,
             identifiers: identifiers,
+            clock: clock,
             readiness: ReadinessService(
                 probes: probes,
                 shutdown: shutdown,
