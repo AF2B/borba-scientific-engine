@@ -38,6 +38,26 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "tags": ["Operations"],
+        "operationId": "getReadiness",
+        "summary": "Readiness",
+        "description": "Reports whether the service should be sent traffic: the database answers with every migration applied, and the process is not shutting down. Unlike liveness it depends on the database on purpose, because an instance that cannot reach it should be taken out of rotation, not restarted.\n\nThe answer is reused for about a second and shared by concurrent probes, so probing often costs the database nothing. The `detail` of a failing check comes from a fixed vocabulary (`unreachable`, `migrations pending`, `timed out`, `shutting down`) and never contains a host name or an error text.",
+        "responses": {
+          "200": {
+            "description": "Ready to receive traffic.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } }
+          },
+          "503": {
+            "description": "Not ready: a dependency is down, migrations are pending or the process is shutting down.",
+            "headers": { "X-Request-ID": { "$ref": "#/components/headers/RequestId" }, "X-Correlation-ID": { "$ref": "#/components/headers/CorrelationId" } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Readiness" } } }
+          }
+        }
+      }
+    },
     "/version": {
       "get": {
         "tags": ["Operations"],
@@ -305,6 +325,25 @@
         "required": ["status"],
         "additionalProperties": false,
         "properties": { "status": { "type": "string", "enum": ["alive"] } }
+      },
+      "ReadinessCheck": {
+        "type": "object",
+        "required": ["name", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "description": "What was probed, such as `database`." },
+          "status": { "type": "string", "enum": ["up", "down"] },
+          "detail": { "type": "string", "description": "Why it is down, from a fixed vocabulary." }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "required": ["status", "checks"],
+        "additionalProperties": false,
+        "properties": {
+          "status": { "type": "string", "enum": ["ready", "not_ready"] },
+          "checks": { "type": "array", "items": { "$ref": "#/components/schemas/ReadinessCheck" } }
+        }
       },
       "Version": {
         "type": "object",

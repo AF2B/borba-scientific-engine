@@ -120,6 +120,7 @@ let package = Package(
                 "BorbaScientificCore",
                 "BorbaScientificEngine",
                 "TestSupport",
+                .product(name: "InMemoryLogging", package: "swift-log"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Vapor", package: "vapor"),
             ],

@@ -4,6 +4,7 @@ import Vapor
 /// on them and must not have to follow API versions.
 enum OperationalPath {
     static let health: PathComponent = "health"
+    static let ready: PathComponent = "ready"
     static let version: PathComponent = "version"
 }
 
@@ -22,6 +23,42 @@ struct LivenessResponse: Encodable, Sendable {
     }
 
     let status: Status
+}
+
+/// The body of the response to `GET /ready`.
+///
+/// ```json
+/// { "status": "not_ready", "checks": [{ "name": "database", "status": "down", "detail": "migrations pending" }] }
+/// ```
+///
+/// The `detail` comes from a fixed vocabulary; it never contains a host name or an error text.
+struct ReadinessResponse: Encodable, Sendable, Equatable {
+    /// The verdict.
+    enum Status: String, Encodable, Sendable {
+        case ready
+        case notReady = "not_ready"
+    }
+
+    /// What one probe found.
+    struct Check: Encodable, Sendable, Equatable {
+        let name: String
+        let status: ReadinessCheckResult.State
+        let detail: String?
+    }
+
+    /// Whether the service should be sent traffic.
+    let status: Status
+
+    /// One entry per probe.
+    let checks: [Check]
+
+    /// Presents a readiness report.
+    ///
+    /// - Parameter report: What readiness found.
+    init(_ report: ReadinessReport) {
+        status = report.isReady ? .ready : .notReady
+        checks = report.checks.map { Check(name: $0.name, status: $0.state, detail: $0.detail) }
+    }
 }
 
 /// The body of the response to `GET /version`.
@@ -57,16 +94,24 @@ struct VersionResponse: Encodable, Sendable {
 /// Endpoints used by orchestrators and operators rather than by API consumers.
 struct OperationalRoutes: RouteCollection {
     private let version: VersionResponse
+    private let readiness: ReadinessService
 
     /// Creates the routes.
     ///
-    /// - Parameter version: What `/version` reports.
-    init(version: VersionResponse) {
+    /// - Parameters:
+    ///   - version: What `/version` reports.
+    ///   - readiness: Answers `/ready`.
+    init(
+        version: VersionResponse,
+        readiness: ReadinessService
+    ) {
         self.version = version
+        self.readiness = readiness
     }
 
     func boot(routes: any RoutesBuilder) throws {
         routes.get(OperationalPath.health, use: liveness)
+        routes.get(OperationalPath.ready, use: readinessReport)
         routes.get(OperationalPath.version, use: versionInformation)
     }
 
@@ -80,6 +125,25 @@ struct OperationalRoutes: RouteCollection {
     @Sendable
     private func liveness(_ request: Request) throws -> Response {
         try request.jsonResponse(LivenessResponse(status: .alive))
+    }
+
+    /// Reports whether the service should be sent traffic: the database answers with every migration applied, and the
+    /// process is not shutting down.
+    ///
+    /// Unlike liveness this depends on the database, on purpose: an instance that cannot reach it should be taken out
+    /// of rotation, not restarted. The answer is cached for a moment and shared by concurrent probes.
+    ///
+    /// - Parameter request: The incoming request.
+    /// - Returns: `200` when ready, `503` otherwise, with what each probe found.
+    /// - Throws: An encoding error when the response cannot be serialized.
+    @Sendable
+    private func readinessReport(_ request: Request) async throws -> Response {
+        let report = await readiness.report()
+
+        return try request.jsonResponse(
+            ReadinessResponse(report),
+            status: report.isReady ? .ok : .serviceUnavailable
+        )
     }
 
     /// Reports which build is running.

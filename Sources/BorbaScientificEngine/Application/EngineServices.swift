@@ -16,4 +16,16 @@ struct EngineServices: Sendable {
 
     /// Creates request identifiers.
     let identifiers: any IdentifierGenerator
+
+    /// Answers whether the service should be sent traffic.
+    let readiness: ReadinessService
+
+    /// Whether the process has begun to shut down.
+    let shutdown: ShutdownState
+
+    /// The requests being served, which the shutdown waits for.
+    let inFlight: InFlightRequests
+
+    /// Delivers events to their subscribers, when the services own one. The application drains it on shutdown.
+    let eventDispatcher: EventDispatcher?
 }

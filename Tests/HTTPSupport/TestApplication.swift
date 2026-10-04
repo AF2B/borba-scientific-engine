@@ -2,6 +2,7 @@ import BorbaScientificCore
 public import Foundation
 public import InMemoryLogging
 import Logging
+import Synchronization
 public import TestSupport
 public import Vapor
 import VaporTesting
@@ -27,6 +28,40 @@ public struct TestHarness: Sendable {
 
     /// The application under test.
     public let application: Application
+
+    let databaseProbe: ControllableProbe
+    let shutdownState: ShutdownState
+
+    /// Makes the readiness probe of the database report up or down.
+    ///
+    /// Readiness reuses an answer for a moment, so a test that changes it must also advance ``clock`` past that
+    /// moment before the change shows.
+    ///
+    /// - Parameter ready: Whether the database should look reachable.
+    public func setDatabaseReady(_ ready: Bool) {
+        databaseProbe.set(ready ? .up : .down)
+    }
+
+    /// Behaves as if a termination signal had just arrived: readiness reports "not ready" at once.
+    public func beginShutdown() {
+        shutdownState.begin()
+    }
+}
+
+/// A readiness probe whose answer a test controls.
+final class ControllableProbe: ReadinessProbe, Sendable {
+    let name = "database"
+
+    private let state = Mutex(ReadinessCheckResult.State.up)
+
+    func set(_ newState: ReadinessCheckResult.State) {
+        state.withLock { $0 = newState }
+    }
+
+    func check() async -> ReadinessCheckResult {
+        let current = state.withLock { $0 }
+        return ReadinessCheckResult(name: name, state: current, detail: current == .down ? "unreachable" : nil)
+    }
 }
 
 /// Everything a test needs to drive the production wiring against a real database.
@@ -89,7 +124,8 @@ public enum TestApplication {
                 handler.logLevel = .trace
                 return handler
             }
-            try ApplicationFactory.configure(application, with: configuration)
+            let services = try LiveServices.assemble(for: application, with: configuration)
+            try ApplicationFactory.configure(application, with: configuration, services: services)
         } _: { application in
             try await test(
                 LiveHarness(client: TestClient(tester: try application.testing()), logs: logs, application: application)
@@ -121,18 +157,21 @@ public enum TestApplication {
         }
         let configuration = try ConfigurationLoader.load(from: variables)
 
+        let probe = ControllableProbe()
+        let services = LiveServices.assemble(
+            repository: repository,
+            events: events,
+            clock: clock,
+            calculation: configuration.calculation,
+            probes: [probe]
+        )
+
         return try await withApp { application in
             application.logger = Logger(label: "http-test") { _ in
                 var handler = logs
                 handler.logLevel = .trace
                 return handler
             }
-            let services = LiveServices.assemble(
-                repository: repository,
-                events: events,
-                clock: clock,
-                calculation: configuration.calculation
-            )
             try ApplicationFactory.configure(application, with: configuration, services: services)
         } _: { application in
             try await test(
@@ -142,7 +181,9 @@ public enum TestApplication {
                     events: events,
                     clock: clock,
                     logs: logs,
-                    application: application
+                    application: application,
+                    databaseProbe: probe,
+                    shutdownState: services.shutdown
                 )
             )
         }
