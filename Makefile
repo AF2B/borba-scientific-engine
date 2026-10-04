@@ -13,6 +13,7 @@ SWIFTLINT ?= swiftlint
 PRODUCT          := borba-scientific-engine
 IMAGE_REPOSITORY ?= $(PRODUCT)
 ARTIFACTS_DIR    := .artifacts
+BENCHMARK_DIR    := $(ARTIFACTS_DIR)/benchmarks
 ENV_FILE         := .env
 ENV_EXAMPLE      := .env.example
 FORMAT_PATHS     := Package.swift Sources Tests
@@ -87,6 +88,20 @@ test-unit: ## Run the unit tests (no external services required)
 .PHONY: test-contract
 test-contract: ## Run the HTTP contract tests against the OpenAPI document (in-memory adapters, no services needed)
 	$(SWIFT) test --filter ContractTests
+
+.PHONY: test-report
+test-report: ## Run the fast suites and report the slowest tests and the time per suite (XML in .artifacts/test-reports)
+	Scripts/test-report.sh
+
+.PHONY: coverage
+coverage: db-up ## Run every suite with coverage and enforce the minimum line coverage per source target
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" Scripts/coverage.sh
+
+.PHONY: benchmark
+benchmark: db-up ## Run the benchmarks in release mode; tables are printed and JSON is written to .artifacts/benchmarks
+	rm -rf $(BENCHMARK_DIR)
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" BENCHMARK_OUTPUT_DIR="$(abspath $(BENCHMARK_DIR))" \
+		$(SWIFT) test --configuration release -Xswiftc -enable-testing --filter PerformanceTests
 
 .PHONY: smoke-shutdown
 smoke-shutdown: build migrate ## Check graceful shutdown: SIGTERM with requests in flight must drop none of them
