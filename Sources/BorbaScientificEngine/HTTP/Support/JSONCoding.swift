@@ -24,23 +24,56 @@ enum JSONCoding {
 }
 
 /// Wall-clock instants as the API writes and reads them: ISO 8601 in UTC, such as `2026-10-03T12:00:00.123Z`.
+///
+/// Both directions work on whole microseconds, the resolution of the database, and never on a floating-point number of
+/// seconds: a double cannot hold most millisecond values exactly, and formatting it directly would print `.122` for an
+/// instant that was stored as `.123`.
 enum Timestamp {
-    /// Writes an instant with millisecond precision.
+    private static let microsecondsPerSecond: Int64 = 1_000_000
+    private static let microsecondsPerMillisecond: Int64 = 1_000
+    private static let fractionWidth = 3
+    private static let zuluSuffix = "Z"
+    private static let fractionSeparator = "."
+    private static let zeroPadding = "0"
+
+    /// Writes an instant with millisecond precision, truncating anything finer.
     ///
     /// - Parameter date: The instant to write.
     /// - Returns: The ISO 8601 text.
     static func format(_ date: Date) -> String {
-        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true))
+        let microseconds = Int64((date.timeIntervalSince1970 * Double(microsecondsPerSecond)).rounded())
+
+        var seconds = microseconds / microsecondsPerSecond
+        var remainder = microseconds % microsecondsPerSecond
+        if remainder < 0 {
+            remainder += microsecondsPerSecond
+            seconds -= 1
+        }
+
+        let wholeSeconds = Date(timeIntervalSince1970: Double(seconds)).formatted(Date.ISO8601FormatStyle())
+        let milliseconds = String(remainder / microsecondsPerMillisecond)
+        let fraction = String(repeating: zeroPadding, count: fractionWidth - milliseconds.count) + milliseconds
+
+        return wholeSeconds.dropLast(zuluSuffix.count) + fractionSeparator + fraction + zuluSuffix
     }
 
-    /// Reads an instant written with or without fractional seconds.
+    /// Reads an instant written with or without fractional seconds, of any precision up to nanoseconds.
     ///
-    /// - Parameter text: The ISO 8601 text.
+    /// - Parameter text: The ISO 8601 text, in UTC (`Z`) or with an offset.
     /// - Returns: The instant, or `nil` when the text is not a valid ISO 8601 timestamp.
     static func parse(_ text: String) -> Date? {
-        let withFraction = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-        let withoutFraction = Date.ISO8601FormatStyle()
-        return (try? withFraction.parse(text)) ?? (try? withoutFraction.parse(text))
+        guard let match = text.wholeMatch(of: #/^(.+T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/#) else {
+            return nil
+        }
+
+        let withoutFraction = String(match.output.1) + String(match.output.3)
+        guard let base = try? Date.ISO8601FormatStyle().parse(withoutFraction) else {
+            return nil
+        }
+        guard let digits = match.output.2 else {
+            return base
+        }
+        return Double(zeroPadding + fractionSeparator + digits).map { base.addingTimeInterval($0) }
     }
 }
 
