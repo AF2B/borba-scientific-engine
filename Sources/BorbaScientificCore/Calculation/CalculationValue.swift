@@ -95,6 +95,10 @@ extension CalculationValue {
 extension CalculationValue: Codable {
     /// Decodes any JSON value.
     ///
+    /// The cases are tried from the most common to the least: parameters are overwhelmingly numbers, and every attempt that
+    /// does not fit costs an error, so numbers are tried first, then booleans and text. A list is first tried as a list of
+    /// numbers, which JSON decoders read in one pass; only a list that is not purely numeric is read element by element.
+    ///
     /// - Parameter decoder: The decoder to read from.
     /// - Throws: A decoding error when the value is not valid JSON of a supported shape.
     public init(from decoder: any Decoder) throws {
@@ -102,12 +106,14 @@ extension CalculationValue: Codable {
 
         if container.decodeNil() {
             self = .null
-        } else if let value = try? container.decode(Bool.self) {
-            self = .boolean(value)
         } else if let value = try? container.decode(Double.self) {
             self = .number(value)
+        } else if let value = try? container.decode(Bool.self) {
+            self = .boolean(value)
         } else if let value = try? container.decode(String.self) {
             self = .text(value)
+        } else if let numbers = try? container.decode([Double].self) {
+            self = .list(numbers.map(CalculationValue.number))
         } else if let value = try? container.decode([CalculationValue].self) {
             self = .list(value)
         } else {

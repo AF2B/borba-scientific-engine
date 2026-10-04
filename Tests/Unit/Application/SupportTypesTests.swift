@@ -65,6 +65,35 @@ struct UUIDv7GeneratorTests {
     }
 }
 
+@Suite("CalculationID ordering")
+struct CalculationIDOrderingTests {
+    @Test("orders identifiers exactly as their text sorts, which for UUIDv7 is chronological order")
+    func matchesTheOrderOfTheText() {
+        var random = SeededRandom(seed: 7)
+        let identifiers = (0..<500).map { _ -> CalculationID in
+            let bytes = (0..<MemoryLayout<uuid_t>.size).map { _ in UInt8.random(in: .min ... .max, using: &random) }
+            return CalculationID(UUID(uuid: bytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }))
+        }
+
+        for (left, right) in zip(identifiers, identifiers.dropFirst()) {
+            #expect((left < right) == (left.description < right.description))
+            #expect((right < left) == (right.description < left.description))
+        }
+        #expect(identifiers.sorted().map(\.description) == identifiers.map(\.description).sorted())
+    }
+
+    @Test("is irreflexive, and orders time-ordered identifiers by their creation")
+    func basics() {
+        let first = RecordFixtures.id(1)
+        let sameAgain = RecordFixtures.id(1)
+        let second = RecordFixtures.id(2)
+
+        #expect(!(first < sameAgain))
+        #expect(first < second)
+        #expect(!(second < first))
+    }
+}
+
 @Suite("RepositoryError")
 struct RepositoryErrorTests {
     @Test(

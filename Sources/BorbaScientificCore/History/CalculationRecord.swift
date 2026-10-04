@@ -31,8 +31,16 @@ public struct CalculationID: Hashable, Sendable, Comparable, Codable, CustomStri
     }
 
     /// Orders identifiers by their bytes, which for time-ordered UUIDs is chronological order.
+    ///
+    /// The bytes are compared directly. Comparing the text of the identifiers gives the same order, because lowercase
+    /// hexadecimal digits sort like the values they stand for, but it builds two strings per comparison, which adds up
+    /// when thousands of records are sorted.
     public static func < (lhs: Self, rhs: Self) -> Bool {
-        lhs.description < rhs.description
+        withUnsafeBytes(of: lhs.rawValue.uuid) { left in
+            withUnsafeBytes(of: rhs.rawValue.uuid) { right in
+                left.lexicographicallyPrecedes(right)
+            }
+        }
     }
 
     /// The lowercase canonical form, such as `0192e4a1-7c3b-7d2e-8f4a-5b6c7d8e9f01`.

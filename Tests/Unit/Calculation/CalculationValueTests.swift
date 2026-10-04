@@ -47,6 +47,44 @@ struct CalculationValueTests {
         #expect(decoded == [1, true, "1", nil])
     }
 
+    private static let shapes: [(String, CalculationValue)] = [
+        ("[]", CalculationValue.list([])),
+        ("{}", CalculationValue.object([:])),
+        ("[1, 2.5, -3]", [1, 2.5, -3]),
+        (#"[1, "a", true]"#, [1, "a", true]),
+        ("[[1, 2], [3, 4]]", [[1, 2], [3, 4]]),
+        ("[[], [1]]", [[], [1]]),
+        (#"[{"a": [1, 2]}, null]"#, [["a": [1, 2]], nil]),
+        ("[true, false]", [true, false]),
+        (#"["1", "2"]"#, ["1", "2"]),
+        ("1e3", 1_000),
+        ("-0.5", -0.5),
+        (#""café 🙂""#, "café 🙂"),
+        (#"{"flag": true, "count": 0}"#, ["flag": true, "count": 0]),
+    ]
+
+    @Test(
+        "decodes each JSON shape to the same value whichever way it is read",
+        arguments: shapes
+    )
+    func decodesShapes(json: String, expected: CalculationValue) throws {
+        #expect(try JSONDecoder().decode(CalculationValue.self, from: Data(json.utf8)) == expected)
+    }
+
+    @Test("does not mistake a number for a boolean or a boolean for a number")
+    func booleansAreNotNumbers() throws {
+        let decoded = try JSONDecoder().decode(CalculationValue.self, from: Data("[0, 1, false, true]".utf8))
+
+        #expect(decoded == [0, 1, false, true])
+    }
+
+    @Test("rejects what is not JSON of a supported shape")
+    func rejectsInvalid() {
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(CalculationValue.self, from: Data("[1, 2".utf8))
+        }
+    }
+
     @Test("encodes whole numbers without a fractional part")
     func encodesWholeNumbers() throws {
         let data = try encoder.encode(CalculationValue.numbers([5, 0.25]))
