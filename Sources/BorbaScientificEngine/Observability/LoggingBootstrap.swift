@@ -29,21 +29,33 @@ enum LoggingBootstrap {
     ///
     /// - Parameter settings: Level and format requested by the configuration.
     static func bootstrap(_ settings: LoggingSettings) {
-        let level = settings.level
-        let format = settings.format
-
         LoggingSystem.bootstrap(
             { label, provider -> any LogHandler in
-                switch format {
-                case .json:
-                    return StructuredLogHandler(label: label, level: level, metadataProvider: provider)
-                case .console:
-                    var handler = StreamLogHandler.standardOutput(label: label, metadataProvider: provider)
-                    handler.logLevel = level
-                    return handler
-                }
+                makeHandler(label: label, metadataProvider: provider, settings: settings)
             },
             metadataProvider: .trace
         )
+    }
+
+    /// Builds the handler behind one logger.
+    ///
+    /// - Parameters:
+    ///   - label: The label of the logger, such as the name of the component that writes to it.
+    ///   - metadataProvider: Adds metadata to every line, such as the trace identifiers.
+    ///   - settings: Level and format requested by the configuration.
+    /// - Returns: A JSON handler or a console handler, at the configured level.
+    static func makeHandler(
+        label: String,
+        metadataProvider: Logger.MetadataProvider?,
+        settings: LoggingSettings
+    ) -> any LogHandler {
+        switch settings.format {
+        case .json:
+            return StructuredLogHandler(label: label, level: settings.level, metadataProvider: metadataProvider)
+        case .console:
+            var handler = StreamLogHandler.standardOutput(label: label, metadataProvider: metadataProvider)
+            handler.logLevel = settings.level
+            return handler
+        }
     }
 }
