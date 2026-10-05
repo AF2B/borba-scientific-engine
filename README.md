@@ -250,6 +250,8 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `make logs`         | Follow the stack logs                                |
 | `make ci`           | Everything the CI pipeline enforces                  |
 
+Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Troubleshooting
 
 | Symptom | Likely cause and what to do |
