@@ -136,7 +136,7 @@ enum HostileValues {
         return all
     }
 
-    private static var expressions: [Replacement] {
+    private static let expressions: [Replacement] = {
         [
             Replacement(label: "an expression nested \(nestingDepth) deep", value: .text(nested("(", ")", "1"))),
             Replacement(label: "a chain of negations", value: .text(String(repeating: "-", count: nestingDepth) + "1")),
@@ -149,9 +149,9 @@ enum HostileValues {
                 value: .text(String(repeating: "x", count: ParameterLimits.maximumTextLength + 1))
             ),
         ]
-    }
+    }()
 
-    private static var vectors: [Replacement] {
+    private static let vectors: [Replacement] = {
         let atTheLimit = [Double](repeating: 1, count: ParameterLimits.maximumCollectionSize)
         let overTheLimit = [Double](repeating: 1, count: ParameterLimits.maximumCollectionSize + 1)
 
@@ -173,9 +173,9 @@ enum HostileValues {
         ]
         vectors += numbers.map { Replacement(label: "a list holding \($0)", value: .numbers([$0, $0, $0])) }
         return vectors
-    }
+    }()
 
-    private static var matrices: [Replacement] {
+    private static let matrices: [Replacement] = {
         let square = { (size: Int, value: Double) in
             CalculationValue.matrix([[Double]](repeating: [Double](repeating: value, count: size), count: size))
         }
@@ -197,7 +197,7 @@ enum HostileValues {
                 value: .matrix([[Double]](repeating: [1], count: 100_000))
             ),
         ]
-    }
+    }()
 
     private static func nested(_ open: String, _ close: String, _ innermost: String) -> String {
         String(repeating: open, count: nestingDepth) + innermost + String(repeating: close, count: nestingDepth)
