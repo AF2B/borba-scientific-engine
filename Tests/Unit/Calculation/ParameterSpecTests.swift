@@ -44,6 +44,14 @@ struct ParameterSpecTests {
         #expect(rejection(of: ParameterSpec.number("m", summary: "", bounds: .lessThan(5)), 5) == "must be less than 5")
     }
 
+    @Test("accepts a value equal to an inclusive upper limit and rejects the next one")
+    func inclusiveUpperBound() {
+        let limit = ParameterSpec.number("limit", summary: "A limit.", bounds: .atMost(5))
+
+        #expect(rejection(of: limit, 5) == nil)
+        #expect(rejection(of: limit, 5.000_1) == "must be at most 5")
+    }
+
     @Test("accepts only whole numbers within the range for integers")
     func integers() {
         let count = ParameterSpec.integer("count", summary: "A count.", range: 1...10)
