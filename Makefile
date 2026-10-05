@@ -30,6 +30,7 @@ BENCHMARK_DIR    := $(ARTIFACTS_DIR)/benchmarks
 ENV_FILE         := .env
 ENV_EXAMPLE      := .env.example
 FORMAT_PATHS     := Package.swift Sources Tests
+SHELL_SCRIPTS    := $(shell find Scripts -name '*.sh' | sort)
 DEFAULT_HTTP_PORT := 8080
 
 # The integration tests create and drop their own databases on this server, so it needs a role that may do so.
@@ -146,7 +147,7 @@ format-check: ## Fail when the sources are not formatted
 
 .PHONY: lint-scripts
 lint-scripts: ## Run ShellCheck on the shell scripts
-	$(DOCKER) run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) --severity=style Scripts/*.sh
+	$(DOCKER) run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) --severity=style $(SHELL_SCRIPTS)
 
 .PHONY: lint-workflows
 lint-workflows: ## Run actionlint on the GitHub Actions workflows
@@ -192,6 +193,10 @@ docker-build: ## Build the production container image
 .PHONY: smoke-container
 smoke-container: docker-build ## Check the image through Compose: unprivileged, read-only, healthy, stops gracefully
 	IMAGE="$(IMAGE)" Scripts/smoke-container.sh
+
+.PHONY: test-deploy
+test-deploy: docker-build ## Rehearse deployment, verification and rollback against the local Docker daemon
+	IMAGE="$(IMAGE)" Scripts/test-deploy.sh
 
 .PHONY: docker-up
 docker-up: $(ENV_FILE) ## Build and start the full stack (API + PostgreSQL) in the background
