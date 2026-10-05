@@ -1,0 +1,200 @@
+name: Test
+
+# Decides whether a change may be merged: formatting, lint, security checks, and the unit, contract and integration tests
+# with coverage. The quality gate at the end is the one check to require in branch protection. See ADR-009.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to notice vulnerabilities in dependencies that did not change, and to take the benchmark measurements.
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Keep the toolchain in step with SWIFT_VERSION in the Dockerfile.
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check the formatting
+        run: swift format lint --strict --recursive Package.swift Sources Tests
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: SwiftLint
+        run: make lint
+
+      - name: ShellCheck
+        run: make lint-scripts
+
+      - name: actionlint
+        run: make lint-workflows
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The secret scan reads the whole history: a secret that was committed and then removed is still a secret.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Audit the locked dependencies
+        run: make audit
+
+      - name: Scan the history for secrets
+        run: make secret-scan
+
+      - name: Scan the Dockerfile for misconfigurations
+        run: make scan-config
+
+  tests:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: swift:6.4-noble
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd "pg_isready --username=ci --dbname=ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      # The integration tests create and drop their own databases on this server. It runs with PostgreSQL's default
+      # connection limit on purpose: the suites must not need more.
+      TEST_DATABASE_URL: postgres://ci:ci@postgres:5432/postgres
+      TEST_REPORT_DIR: .artifacts/test-reports
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the tools the scripts need
+        run: apt-get update && apt-get install --yes --no-install-recommends jq make
+
+      - name: Restore the build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-tests-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-tests-${{ runner.os }}-
+
+      - name: Run the unit, contract and integration tests with coverage
+        run: |
+          mkdir -p "${TEST_REPORT_DIR}"
+          swift test --enable-code-coverage --skip PerformanceTests --xunit-output "${TEST_REPORT_DIR}/tests.xml"
+
+      - name: Report how long the tests took
+        if: ${{ !cancelled() }}
+        run: Scripts/ci-summary.sh "Test durations" Scripts/test-report.sh --no-run
+
+      - name: Export the coverage data
+        run: cp "$(swift test --show-codecov-path)" .artifacts/coverage.json
+
+      - name: Enforce the coverage floors
+        run: Scripts/ci-summary.sh "Coverage" Scripts/coverage.sh --no-run
+
+      - name: Keep the reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-reports
+          path: .artifacts
+          if-no-files-found: warn
+          retention-days: 14
+
+  benchmarks:
+    name: Benchmarks
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container: swift:6.4-noble
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd "pg_isready --username=ci --dbname=ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      TEST_DATABASE_URL: postgres://ci:ci@postgres:5432/postgres
+      # The budgets were set on a developer machine; shared runners are slower and noisier (ADR-007).
+      BENCHMARK_BUDGET_SCALE: "3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore the build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-benchmarks-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-benchmarks-${{ runner.os }}-
+
+      - name: Run the benchmarks in release mode
+        run: swift test --configuration release -Xswiftc -enable-testing --filter PerformanceTests
+
+      - name: Keep the measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: benchmarks
+          path: .artifacts/benchmarks
+          if-no-files-found: warn
+          retention-days: 90
+
+  gate:
+    name: Quality gate
+    if: ${{ always() }}
+    needs: [format, lint, security, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every check to have passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"${RESULTS}"
+          jq -e 'all(.[]; .result == "success")' <<<"${RESULTS}" >/dev/null
