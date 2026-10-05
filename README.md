@@ -7,9 +7,11 @@ The project is a Swift engineering laboratory: a modular calculation platform wi
 layering, typed errors, structured observability, real-database integration tests, a container image and CI/CD.
 Everything in the repository — code, comments, documentation and commit messages — is written in English.
 
-> **Status:** under active construction. The calculation engine, the PostgreSQL history and the versioned HTTP API are
-> in place; observability, performance work and the delivery pipelines are next. This README grows with each delivered
-> phase; see the [changelog](CHANGELOG.md) for what is available today.
+> **Status:** the engine, the HTTP API, the PostgreSQL history, observability, the container, the pipelines and the
+> deployment tooling are in place and tested. Three things to know before relying on it: the pipelines were validated
+> statically and by running their commands locally but have not yet run on GitHub; no deployment platform is configured; and
+> the API has no authentication or rate limiting, so it belongs behind a gateway (see
+> [security](Documentation/Operations/security.md)). The [changelog](CHANGELOG.md) lists what is available.
 
 ## Technology
 
@@ -30,7 +32,8 @@ Everything in the repository — code, comments, documentation and commit messag
 HTTP → Handlers → Business → Ports → Adapters → Infrastructure
 ```
 
-Dependencies only point inward and the boundary is enforced by the SwiftPM target graph. See
+Dependencies only point inward and the boundary is enforced by the SwiftPM target graph. See the
+[architecture overview](Documentation/Architecture/README.md) and
 [ADR-001](Documentation/ADR/ADR-001-application-architecture.md).
 
 ## Calculation modules
@@ -69,6 +72,23 @@ The guide is in [Documentation/API](Documentation/API/README.md), the contract i
 [`openapi.json`](Documentation/API/openapi.json) and the error catalog in [`errors.md`](Documentation/API/errors.md).
 The contract tests hold the running API to the document.
 
+## PostgreSQL
+
+The history of every calculation lives in PostgreSQL 18, accessed through Fluent. The schema is owned by versioned SQL
+migrations that are applied **explicitly**; the application never migrates on startup. The database keeps its own promises:
+check constraints tie each row's outcome to its result or its error, idempotency keys are claimed atomically with the
+calculation they belong to, and indexes serve the newest-first listing, the failures-only listing and keyset pagination
+(a page deep in the history costs what the first page costs).
+
+```bash
+make db-up                # start PostgreSQL only, and wait until it is healthy
+make migrate              # apply the migrations
+psql "$DATABASE_URL"      # look around; the credentials are in .env
+```
+
+To start again from an empty database: `make down`, then `docker volume rm borba-scientific-engine_postgres-data`. The
+reasoning, the schema and the measurements are in [ADR-004](Documentation/ADR/ADR-004-postgresql-persistence-strategy.md).
+
 ## Observability
 
 Three signals with distinct jobs, tied together by the request identifier: **structured JSON logs** that carry the
@@ -77,8 +97,20 @@ request and correlation identifiers in every layer (including the database drive
 **error tracker** (Sentry) that hears only about failures worth a person's attention and never about callers' data.
 `/health` is liveness, `/ready` is readiness (database and migrations), `/version` names the build.
 
+**Sentry** is off until `SENTRY_DSN` is set (`SENTRY_SAMPLE_RATE` samples what is reported). It receives an error code, a
+classification, the route template and the trace identifiers, and nothing a caller sent.
+
 See the [observability guide](Documentation/Operations/observability.md) for queries, alerts and runbooks, and
 [ADR-006](Documentation/ADR/ADR-006-observability.md) for the reasoning.
+
+## Security
+
+The service validates every parameter against a typed declaration, bounds the cost of every request, binds every SQL
+value, keeps internal causes and callers' data out of responses, logs and error reports, and runs in a container that
+cannot write, escalate or hold capabilities. Its pipelines audit dependencies, scan history and images, and attest what they
+publish. What it does **not** do is as important: no authentication, no rate limiting, no TLS, no retention policy. The
+[security guide](Documentation/Operations/security.md) lists the controls, the assumptions and the gaps, and
+[`SECURITY.md`](SECURITY.md) says how to report a vulnerability.
 
 ## Testing and performance
 
@@ -217,6 +249,20 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `make up` / `down`  | Start / stop the Docker Compose stack                |
 | `make logs`         | Follow the stack logs                                |
 | `make ci`           | Everything the CI pipeline enforces                  |
+
+## Troubleshooting
+
+| Symptom | Likely cause and what to do |
+|---|---|
+| `make up` fails with *port is already allocated* | Something else uses 8080 or 5432. Set `HTTP_PORT` or `POSTGRES_PORT` in `.env` |
+| The API exits with *Invalid configuration* | A variable is missing or malformed; the message names each one. `make setup` creates `.env`; `DATABASE_URL` is required |
+| `/ready` answers 503 | The database is unreachable or the migrations are pending. The body names the failing dependency; `make migrate` applies the migrations |
+| `make test-integration` cannot connect | PostgreSQL is not up (`make db-up`), or `TEST_DATABASE_URL` points at a role that may not create databases |
+| `make lint` pulls an image the first time | SwiftLint is not installed, so its container image runs it. Install SwiftLint to use it locally |
+| `make test` is slow the first time | Dependencies compile once (several minutes); later runs are incremental |
+| The container is `unhealthy`, or stops with status 137 | See the [container guide](Documentation/Operations/container.md#when-something-is-wrong) |
+| A deployment was refused or rolled back | See the [deployment guide](Documentation/Operations/deployment.md#when-something-is-wrong) |
+| A response carries an error code you do not recognize | The [error catalog](Documentation/API/errors.md) lists every code, its status and what to do. Quote the `request_id` when asking for help: it finds the log lines, the stored calculation and the error report |
 
 ## Repository layout
 

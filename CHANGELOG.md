@@ -107,3 +107,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   longer builds strings.
 - Rendering a log line is about 30 times faster: redaction inspects keys as bytes instead of lowercasing and splitting
   them.
+
+### Security
+
+- A forged pagination cursor that named an instant outside the years 0001 through 9999 crashed the service on the next
+  listing. Cursors are now validated, the PostgreSQL adapter reports an instant it cannot represent as a failure instead of
+  trapping, and tests send such cursors through the API against a real PostgreSQL.
+- Tests that run every calculation operation with hostile parameters (floating-point extremes, empty, oversized and ragged
+  collections, malicious text, values of the wrong type) and send hostile requests to the API, requiring that none crashes,
+  hangs or answers with a server error.
