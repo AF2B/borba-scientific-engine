@@ -74,3 +74,4 @@ Failures are values until the edge: the core returns typed results, and only the
 | Pipelines and deployment | `.github/workflows/`, `Scripts/deploy*` | ADR-009, [deployment guide](../Operations/deployment.md) |
 | The HTTP contract | `Documentation/API/openapi.json` | [API guide](../API/README.md) |
 | Security assumptions and limits | | [security](../Operations/security.md) |
+| What the project depends on, and why | `Package.swift` | [dependencies](dependencies.md) |
