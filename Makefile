@@ -153,8 +153,12 @@ lint-scripts: ## Run ShellCheck on the shell scripts
 lint-workflows: ## Run actionlint on the GitHub Actions workflows
 	$(DOCKER) run --rm --volume "$(CURDIR):/repo:ro" --workdir /repo $(ACTIONLINT_IMAGE) -color
 
+.PHONY: lint-docs
+lint-docs: ## Check that every relative link and heading anchor in the Markdown documents resolves
+	python3 Scripts/check-markdown-links.py
+
 .PHONY: ci
-ci: format-check lint lint-scripts lint-workflows build test security ## Run the checks the CI pipeline enforces
+ci: format-check lint lint-scripts lint-workflows lint-docs build test security ## Run the checks the CI pipeline enforces
 
 ##@ Security
 

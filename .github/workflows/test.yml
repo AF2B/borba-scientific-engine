@@ -56,6 +56,9 @@ jobs:
       - name: actionlint
         run: make lint-workflows
 
+      - name: Documentation links
+        run: make lint-docs
+
   security:
     name: Security
     runs-on: ubuntu-latest
