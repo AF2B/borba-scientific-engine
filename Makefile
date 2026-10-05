@@ -9,6 +9,19 @@ DOCKER    ?= docker
 COMPOSE   ?= $(DOCKER) compose
 SWIFTLINT ?= swiftlint
 
+# Quality and security tools run from pinned container images, so that everyone and the pipelines use one version of each.
+SWIFTLINT_IMAGE   ?= ghcr.io/realm/swiftlint:0.65.1
+SHELLCHECK_IMAGE  ?= koalaman/shellcheck:v0.11.0
+ACTIONLINT_IMAGE  ?= rhysd/actionlint:1.7.12
+OSV_SCANNER_IMAGE ?= ghcr.io/google/osv-scanner:v2.6.0
+GITLEAKS_IMAGE    ?= ghcr.io/gitleaks/gitleaks:v8.30.1
+TRIVY_IMAGE       ?= ghcr.io/aquasecurity/trivy:0.75.0
+
+# A locally installed SwiftLint is used when there is one.
+ifeq (,$(shell command -v $(SWIFTLINT) 2>/dev/null))
+SWIFTLINT := $(DOCKER) run --rm --volume "$(CURDIR):/work" --workdir /work $(SWIFTLINT_IMAGE) swiftlint
+endif
+
 # --- Project layout ------------------------------------------------------------------------------------
 PRODUCT          := borba-scientific-engine
 IMAGE_REPOSITORY ?= $(PRODUCT)
@@ -17,6 +30,7 @@ BENCHMARK_DIR    := $(ARTIFACTS_DIR)/benchmarks
 ENV_FILE         := .env
 ENV_EXAMPLE      := .env.example
 FORMAT_PATHS     := Package.swift Sources Tests
+DEFAULT_HTTP_PORT := 8080
 
 # The integration tests create and drop their own databases on this server, so it needs a role that may do so.
 TEST_DATABASE_URL ?= $(DATABASE_URL)
@@ -93,6 +107,9 @@ test-contract: ## Run the HTTP contract tests against the OpenAPI document (in-m
 test-report: ## Run the fast suites and report the slowest tests and the time per suite (XML in .artifacts/test-reports)
 	Scripts/test-report.sh
 
+.PHONY: test-performance
+test-performance: benchmark ## Alias for benchmark
+
 .PHONY: coverage
 coverage: db-up ## Run every suite with coverage and enforce the minimum line coverage per source target
 	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" Scripts/coverage.sh
@@ -102,6 +119,10 @@ benchmark: db-up ## Run the benchmarks in release mode; tables are printed and J
 	rm -rf $(BENCHMARK_DIR)
 	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" BENCHMARK_OUTPUT_DIR="$(abspath $(BENCHMARK_DIR))" \
 		$(SWIFT) test --configuration release -Xswiftc -enable-testing --filter PerformanceTests
+
+.PHONY: validate-release
+validate-release: build-release db-up ## Validate the release build: libraries, routes, health check, migrations, shutdown
+	DATABASE_URL="$(DATABASE_URL)" Scripts/validate-release.sh
 
 .PHONY: smoke-shutdown
 smoke-shutdown: build migrate ## Check graceful shutdown: SIGTERM with requests in flight must drop none of them
@@ -123,8 +144,39 @@ format: ## Format the sources in place
 format-check: ## Fail when the sources are not formatted
 	$(SWIFT) format lint --strict --recursive $(FORMAT_PATHS)
 
+.PHONY: lint-scripts
+lint-scripts: ## Run ShellCheck on the shell scripts
+	$(DOCKER) run --rm --volume "$(CURDIR):/mnt:ro" --workdir /mnt $(SHELLCHECK_IMAGE) --severity=style Scripts/*.sh
+
+.PHONY: lint-workflows
+lint-workflows: ## Run actionlint on the GitHub Actions workflows
+	$(DOCKER) run --rm --volume "$(CURDIR):/repo:ro" --workdir /repo $(ACTIONLINT_IMAGE) -color
+
 .PHONY: ci
-ci: format-check lint build test ## Run the checks the CI pipeline enforces
+ci: format-check lint lint-scripts lint-workflows build test security ## Run the checks the CI pipeline enforces
+
+##@ Security
+
+.PHONY: audit
+audit: ## Check the locked dependencies against the OSV vulnerability database
+	$(DOCKER) run --rm --volume "$(CURDIR):/src:ro" --workdir /src $(OSV_SCANNER_IMAGE) scan source --lockfile Package.resolved
+
+.PHONY: secret-scan
+secret-scan: ## Scan the whole git history for committed secrets
+	$(DOCKER) run --rm --volume "$(CURDIR):/repo:ro" $(GITLEAKS_IMAGE) git /repo --redact --no-banner
+
+.PHONY: scan-config
+scan-config: ## Scan the Dockerfile for misconfigurations (HIGH and CRITICAL fail)
+	$(DOCKER) run --rm --volume "$(CURDIR):/src:ro" $(TRIVY_IMAGE) config --skip-dirs .build --skip-dirs $(ARTIFACTS_DIR) \
+		--severity HIGH,CRITICAL --exit-code 1 /src
+
+.PHONY: scan-image
+scan-image: ## Scan IMAGE for known vulnerabilities (HIGH and CRITICAL with a fix fail)
+	$(DOCKER) run --rm --volume /var/run/docker.sock:/var/run/docker.sock $(TRIVY_IMAGE) image \
+		--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 $(IMAGE)
+
+.PHONY: security
+security: audit secret-scan scan-config ## Run every security check that needs no built image
 
 ##@ Container
 
@@ -148,6 +200,12 @@ docker-up: $(ENV_FILE) ## Build and start the full stack (API + PostgreSQL) in t
 .PHONY: up
 up: docker-up ## Alias for docker-up
 
+.PHONY: pull-up
+pull-up: $(ENV_FILE) ## Start the stack from a published image, without building: make pull-up PULL_IMAGE=ghcr.io/<owner>/<repo>:<tag>
+	@test -n "$(PULL_IMAGE)" || { echo "usage: make pull-up PULL_IMAGE=ghcr.io/<owner>/<repository>:<tag>" >&2; exit 2; }
+	$(DOCKER) pull $(PULL_IMAGE)
+	IMAGE="$(PULL_IMAGE)" $(COMPOSE) up --detach --no-build --wait
+
 .PHONY: docker-down
 docker-down: ## Stop the stack and remove its containers (data volume is kept)
 	$(COMPOSE) down
@@ -158,6 +216,10 @@ down: docker-down ## Alias for docker-down
 .PHONY: logs
 logs: ## Follow the logs of the stack
 	$(COMPOSE) logs --follow --tail=100
+
+.PHONY: metrics
+metrics: ## Print the Prometheus metrics of the API running locally (make up, or make run)
+	curl --fail --silent --show-error http://127.0.0.1:$(or $(HTTP_PORT),$(DEFAULT_HTTP_PORT))/metrics
 
 ##@ Housekeeping
 
