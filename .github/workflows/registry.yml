@@ -23,6 +23,10 @@ on:
       - Package.resolved
       - Sources/**
       - Scripts/smoke-container.sh
+      - Scripts/deploy.sh
+      - Scripts/deploy/**
+      - Scripts/test-deploy.sh
+      - Scripts/verify-deployment.sh
       - .github/workflows/registry.yml
   workflow_dispatch:
 
@@ -115,6 +119,11 @@ jobs:
 
       - name: Verify the container
         run: IMAGE="${LOCAL_IMAGE}" Scripts/ci-summary.sh "Container check" Scripts/smoke-container.sh
+
+      # The deployment tooling, run against the image that is about to be published: a first deployment, an upgrade, a
+      # release that fails to start and one that fails to serve, and the rollbacks.
+      - name: Rehearse a deployment and a rollback
+        run: IMAGE="${LOCAL_IMAGE}" Scripts/ci-summary.sh "Deployment rehearsal" Scripts/test-deploy.sh
 
       - name: Scan the image for vulnerabilities
         run: Scripts/ci-summary.sh "Image vulnerabilities" make scan-image IMAGE="${LOCAL_IMAGE}"
