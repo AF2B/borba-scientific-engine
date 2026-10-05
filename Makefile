@@ -137,6 +137,10 @@ docker-build: ## Build the production container image
 		--tag $(IMAGE) \
 		.
 
+.PHONY: smoke-container
+smoke-container: docker-build ## Check the image through Compose: unprivileged, read-only, healthy, stops gracefully
+	IMAGE="$(IMAGE)" Scripts/smoke-container.sh
+
 .PHONY: docker-up
 docker-up: $(ENV_FILE) ## Build and start the full stack (API + PostgreSQL) in the background
 	$(COMPOSE) up --build --detach --wait
