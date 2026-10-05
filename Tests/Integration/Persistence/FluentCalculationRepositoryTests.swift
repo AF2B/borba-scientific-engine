@@ -143,6 +143,24 @@ struct FluentCalculationRepositoryTests {
         }
     }
 
+    @Test("reports an instant the database cannot hold as a failure, instead of crashing the process")
+    func unrepresentableCursorInstant() async throws {
+        try await PostgresTestDatabase.withMigratedDatabase { database in
+            let cursor = PageCursor(
+                createdAt: Date(timeIntervalSince1970: .greatestFiniteMagnitude),
+                id: RecordFixtures.id(1)
+            )
+            let page = BorbaScientificCore.PageRequest(limit: 10, cursor: cursor)
+
+            let outcome = await Result { try await database.repository.list(matching: HistoryFilter(), page: page) }
+
+            guard case .failure = outcome else {
+                Issue.record("Expected the database to refuse an instant it cannot hold")
+                return
+            }
+        }
+    }
+
     @Test("reports pool exhaustion as a timeout instead of waiting forever")
     func poolExhaustion() async throws {
         let singleLoop = MultiThreadedEventLoopGroup(numberOfThreads: 1)

@@ -5,9 +5,27 @@ import Testing
 
 @testable import BorbaScientificEngine
 
+/// The instants a cursor may name, in microseconds since the Unix epoch: the years 0001 through 9999 of RFC 3339.
+private enum InstantRange {
+    static let wholeMicrosecondsPerSecond: Int64 = 1_000_000
+    static let earliestSecond: Int64 = -62_135_596_800  // 0001-01-01T00:00:00Z
+    static let latestSecond: Int64 = 253_402_300_799  // 9999-12-31T23:59:59Z
+
+    static let earliest = earliestSecond * wholeMicrosecondsPerSecond
+    static let latest = latestSecond * wholeMicrosecondsPerSecond + (wholeMicrosecondsPerSecond - 1)
+
+    static let rejected: [Int64] = [.max, .min, earliest - 1, latest + 1]
+    static let accepted: [Int64] = [earliest, 0, latest]
+}
+
 @Suite("PageCursorCodec")
 struct PageCursorCodecTests {
     private static let microsecondsPerSecond = 1_000_000.0
+    private static let anyIdentifier = "00000000-0000-7000-8000-000000000001"
+
+    private static func token(microseconds: Int64) -> String {
+        Base64URL.encode(Data("v1.\(microseconds).\(anyIdentifier)".utf8))
+    }
 
     private static func microseconds(of date: Date) -> Int64 {
         Int64((date.timeIntervalSince1970 * microsecondsPerSecond).rounded())
@@ -60,6 +78,22 @@ struct PageCursorCodecTests {
     )
     func rejectsMalformedPayloads(payload: String) {
         #expect(PageCursorCodec.decode(Base64URL.encode(Data(payload.utf8))) == nil)
+    }
+
+    @Test(
+        "rejects an instant no timestamp can hold, which only a forged token names",
+        arguments: InstantRange.rejected
+    )
+    func rejectsInstantsOutsideTheTimestampRange(microseconds: Int64) {
+        #expect(PageCursorCodec.decode(Self.token(microseconds: microseconds)) == nil)
+    }
+
+    @Test(
+        "accepts the first and the last instant of the range, and the epoch",
+        arguments: InstantRange.accepted
+    )
+    func acceptsInstantsInsideTheTimestampRange(microseconds: Int64) {
+        #expect(PageCursorCodec.decode(Self.token(microseconds: microseconds)) != nil)
     }
 }
 

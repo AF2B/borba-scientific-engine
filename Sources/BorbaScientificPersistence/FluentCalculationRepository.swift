@@ -237,9 +237,20 @@ public struct FluentCalculationRepository: CalculationRepository {
     /// - Parameter date: The instant.
     /// - Returns: A `timestamptz` expression.
     private static func timestamp(_ date: Date) -> SQLQueryString {
-        let microseconds = Int64((date.timeIntervalSince1970 * microsecondsPerSecond).rounded())
+        let microseconds = wholeMicroseconds(of: date)
 
         return "('epoch'::timestamptz + \(bind: microseconds) * interval '1 microsecond')"
+    }
+
+    /// The instant as whole microseconds, saturating instead of trapping.
+    ///
+    /// A date that no 64-bit count of microseconds can hold is not a date the database can hold either, so it saturates
+    /// and the database refuses it with an error, which the caller can handle. Converting it directly would crash the
+    /// process.
+    private static func wholeMicroseconds(of date: Date) -> Int64 {
+        let microseconds = (date.timeIntervalSince1970 * microsecondsPerSecond).rounded()
+
+        return Int64(exactly: microseconds) ?? (microseconds < 0 ? .min : .max)
     }
 
     private static func listQuery(

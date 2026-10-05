@@ -16,6 +16,7 @@ struct EndToEndTests {
     private static let idempotencyKeyHeader = "Idempotency-Key"
     private static let replayedHeader = "Idempotent-Replayed"
     private static let requestIDHeader = "X-Request-ID"
+    private static let anyIdentifier = "00000000-0000-7000-8000-000000000001"
     private static let concurrentRetries = 8
     private static let batchSize = 25
     private static let pageSize = 4
@@ -121,6 +122,25 @@ struct EndToEndTests {
                 #expect(identifiers.count == Self.batchSize)
                 #expect(Set(identifiers).count == Self.batchSize)
                 #expect(timestamps == timestamps.sorted(by: >), "newest first")
+            }
+        }
+    }
+
+    @Test("refuses a forged cursor instead of passing it to the database, and stays alive")
+    func refusesForgedCursors() async throws {
+        try await PostgresTestDatabase.withMigratedDatabase { database in
+            try await TestApplication.runLive(databaseURL: database.url) { harness in
+                for microseconds in [Int64.max, Int64.min] {
+                    let forged = Base64URL.encode(Data("v1.\(microseconds).\(Self.anyIdentifier)".utf8))
+
+                    let response = try await harness.client.get("\(Self.calculationsPath)?cursor=\(forged)")
+
+                    #expect(response.status == .badRequest)
+                    #expect(try response.json().at("error", "details", 0, "field")?.text == "cursor")
+                }
+
+                let health = try await harness.client.get("/health")
+                #expect(health.status == .ok)
             }
         }
     }

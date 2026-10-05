@@ -4,12 +4,23 @@ import Foundation
 /// Writes a page position as the opaque `cursor` string clients pass back to read the next page.
 ///
 /// Clients must treat the string as a token: the format is versioned precisely so it can change. It is not signed,
-/// because a forged cursor can only start a listing from a position the caller could reach anyway.
+/// because a forged cursor can only start a listing from a position the caller could reach anyway. It is still
+/// validated, because it is input: a token that names an instant no timestamp can hold is refused.
 enum PageCursorCodec {
     private static let version = "v1"
     private static let separator = "."
     private static let fieldCount = 3
     private static let microsecondsPerSecond = 1_000_000.0
+    private static let wholeMicrosecondsPerSecond: Int64 = 1_000_000
+
+    /// The instants a cursor may name are the years 0001 through 9999 of RFC 3339, the range of every timestamp the API
+    /// reads or writes. Anything else was not produced by ``encode(_:)``, and turning it back into microseconds for the
+    /// database would overflow.
+    private static let earliestSecond: Int64 = -62_135_596_800  // 0001-01-01T00:00:00Z
+    private static let latestSecond: Int64 = 253_402_300_799  // 9999-12-31T23:59:59Z
+    private static let earliestMicroseconds = earliestSecond * wholeMicrosecondsPerSecond
+    private static let latestMicroseconds = latestSecond * wholeMicrosecondsPerSecond + (wholeMicrosecondsPerSecond - 1)
+    private static let validMicroseconds = earliestMicroseconds...latestMicroseconds
 
     /// Encodes a position.
     ///
@@ -28,7 +39,8 @@ enum PageCursorCodec {
     /// Decodes a token.
     ///
     /// - Parameter token: The `cursor` value a client sent.
-    /// - Returns: The position, or `nil` when the token was not produced by ``encode(_:)``.
+    /// - Returns: The position, or `nil` when the token was not produced by ``encode(_:)``, which includes a token that
+    ///   names an instant outside the years 0001 through 9999.
     static func decode(_ token: String) -> PageCursor? {
         guard
             let data = Base64URL.decode(token),
@@ -42,6 +54,7 @@ enum PageCursorCodec {
             fields.count == fieldCount,
             fields[0] == version,
             let microseconds = Int64(fields[1]),
+            validMicroseconds.contains(microseconds),
             let identifier = UUID(uuidString: fields[2])
         else {
             return nil
