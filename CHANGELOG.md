@@ -82,6 +82,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   and PostgreSQL behind it, that a database outage makes the container unready but not unhealthy, and that it stops with
   status 0.
 - Architecture decision record and operations guide for the container.
+- Four GitHub Actions pipelines. Test: formatting, lint, security scans, the unit, contract and integration tests against
+  PostgreSQL, a coverage floor per target, test durations and coverage in the job summary, weekly benchmarks, and a quality
+  gate. Build: lockfile check, compile, and a validated release build. Registry: builds the image, verifies it through
+  Compose, rehearses a deployment, scans it and publishes it to the GitHub Container Registry with the tags `latest`,
+  the branch, the version and the commit, refusing to overwrite a version and attesting provenance. Deploy: resolves a
+  version to a digest, verifies its attestation, deploys through a provider, verifies the deployment from the outside and
+  rolls back when it fails.
+- Deployment tooling: `Scripts/deploy.sh` (plan, verification, rollback), `Scripts/verify-deployment.sh` (read-only
+  checks of a running service), a provider for a Docker host running the Compose stack and a template for other
+  platforms, rehearsed by `make test-deploy`. No platform is configured: deployments are refused until an environment
+  names a provider, and a dry run only reports the plan.
+- Dependabot for Swift packages, actions and base images, and a pull request template.
+- `make audit`, `secret-scan`, `scan-config`, `scan-image` and `security`; `lint-scripts` and `lint-workflows`;
+  `validate-release`; `pull-up` to run a published image; `metrics`; and `test-performance`. SwiftLint and the scanners
+  run from pinned container images, so everyone uses one version.
+- Architecture decision record for CI/CD and the deployment guide.
 
 ### Changed
 

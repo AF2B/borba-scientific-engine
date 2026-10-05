@@ -108,6 +108,34 @@ separate one-shot service. `make smoke-container` verifies all of this against t
 See the [container guide](Documentation/Operations/container.md) and
 [ADR-008](Documentation/ADR/ADR-008-container-image-and-runtime.md).
 
+## CI/CD and releases
+
+Four GitHub Actions pipelines, each answering one question:
+
+| Pipeline | Answers | Runs |
+|---|---|---|
+| **Test** | May this change be merged? Formatting, lint, security scans, unit, contract and integration tests against PostgreSQL, a coverage floor per target, test durations in the job summary | Pull requests, the default branch, weekly |
+| **Build** | Does it resolve to what is locked, compile, and does the release build behave (libraries, migrations, graceful shutdown)? | Pull requests, the default branch, `v*.*.*` tags |
+| **Registry** | Is the image correct and safe? Builds it, verifies it through Compose, rehearses a deployment and a rollback, scans it, and publishes it to GHCR | The default branch, `v*.*.*` tags, pull requests that touch the image |
+| **Deploy** | Resolves a release to a digest, checks its attestation, deploys it through a provider, verifies it from the outside and rolls back when that fails | On demand, as a dry run unless told otherwise |
+
+Every check is a `make` target, so a red pipeline is reproduced with the same command (`make ci`). Branch protection should
+require `Test / Quality gate` and `Build / Build gate`.
+
+**Images** are published to `ghcr.io/<owner>/<repository>` with the tags `latest` and `main` (they move: never deploy them),
+`v1.2.3` (immutable; the pipeline refuses to overwrite it), `v1.2` and `sha-<commit>`, with provenance. To run a published
+image instead of building one:
+
+```bash
+make pull-up PULL_IMAGE=ghcr.io/<owner>/<repository>:main
+```
+
+**Deployment** has no platform configured: until an environment names a provider, a deployment is refused and a dry run
+reports its plan. One provider ships, for a Docker host running the Compose stack, and a template covers the rest. The
+pipeline, the verification and the rollback are real and rehearsed by `make test-deploy`.
+
+See [ADR-009](Documentation/ADR/ADR-009-ci-cd.md) and the [deployment guide](Documentation/Operations/deployment.md).
+
 ## Getting started
 
 ### Prerequisites
@@ -176,9 +204,16 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `make benchmark`    | Release-mode benchmarks with latency percentiles     |
 | `make migrate`      | Apply the database migrations locally                |
 | `make lint`         | SwiftLint in strict mode                             |
+| `make lint-scripts` / `lint-workflows` | ShellCheck on the scripts, actionlint on the pipelines |
 | `make format`       | Format sources with `swift format`                   |
+| `make security`     | Dependency audit, secret scan and Dockerfile scan (`audit`, `secret-scan`, `scan-config`) |
+| `make scan-image`   | Scan `IMAGE` for fixable HIGH and CRITICAL vulnerabilities |
+| `make validate-release` | Build and validate the release executable        |
 | `make docker-build` | Build the production container image                 |
 | `make smoke-container` | Verify the image: unprivileged, read-only, healthy, stops gracefully |
+| `make test-deploy`  | Rehearse deployment, verification and rollback locally |
+| `make pull-up`      | Start the stack from a published image (`PULL_IMAGE=…`) |
+| `make metrics`      | Print the Prometheus metrics of the running API       |
 | `make up` / `down`  | Start / stop the Docker Compose stack                |
 | `make logs`         | Follow the stack logs                                |
 | `make ci`           | Everything the CI pipeline enforces                  |
