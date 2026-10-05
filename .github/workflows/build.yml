@@ -1,0 +1,117 @@
+name: Build
+
+# Proves that the package resolves to exactly what is locked, that it compiles, and that the release configuration, which
+# is what the container image ships, builds and behaves. See ADR-009.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve:
+    name: Package resolution
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Keep the toolchain in step with SWIFT_VERSION in the Dockerfile.
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Resolve exactly the locked versions
+        run: swift package resolve --force-resolved-versions
+
+      - name: Check that the lockfile is committed and complete
+        run: git diff --exit-code -- Package.resolved
+
+  compile:
+    name: Compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore the build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-compile-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-compile-${{ runner.os }}-
+
+      # Warnings are errors in every first-party target, so this also fails on a new compiler warning.
+      - name: Compile every target of the debug configuration
+        run: swift build --force-resolved-versions
+
+  release:
+    name: Release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: swift:6.4-noble
+    services:
+      postgres:
+        image: postgres:18.6-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        options: >-
+          --health-cmd "pg_isready --username=ci --dbname=ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://ci:ci@postgres:5432/ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the tools the validation needs
+        run: apt-get update && apt-get install --yes --no-install-recommends curl
+
+      - name: Restore the build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-release-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-release-${{ runner.os }}-
+
+      - name: Build the release configuration
+        run: swift build --configuration release --product borba-scientific-engine --force-resolved-versions
+
+      - name: Validate the production build
+        run: Scripts/ci-summary.sh "Release validation" Scripts/validate-release.sh
+
+  gate:
+    name: Build gate
+    if: ${{ always() }}
+    needs: [resolve, compile, release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every job to have passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"${RESULTS}"
+          jq -e 'all(.[]; .result == "success")' <<<"${RESULTS}" >/dev/null
