@@ -1,5 +1,17 @@
 name: borba-scientific-engine
 
+# What the application containers have in common. The engine is stateless: it needs no writable filesystem beyond a
+# scratch /tmp, no Linux capabilities (it listens on an unprivileged port) and no way to gain privileges.
+x-hardened: &hardened
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  mem_limit: ${APP_MEMORY_LIMIT:-512m}
+
 services:
   postgres:
     image: postgres:18.6-alpine
@@ -26,10 +38,14 @@ services:
   # Applies the database migrations once and exits. The application never migrates on startup: with several replicas
   # they would race, and a failed migration would take every one of them down.
   migrate:
+    <<: *hardened
     image: ${IMAGE:-borba-scientific-engine:dev}
     pull_policy: never
     command: ["migrate", "--yes"]
     restart: "no"
+    # A one-shot job has nothing to probe: the image's health check would only report it as unhealthy while it runs.
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,6 +55,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
 
   app:
+    <<: *hardened
     build:
       context: .
       args:
@@ -47,6 +64,12 @@ services:
         APP_BUILD_DATE: ${APP_BUILD_DATE:-}
     image: ${IMAGE:-borba-scientific-engine:dev}
     restart: unless-stopped
+    # Longer than the application's own shutdown timeout, so that Docker waits for the graceful shutdown instead of
+    # killing the process in the middle of it.
+    stop_grace_period: 30s
+    # The command is the image's; only the interval is shortened, so that `up --wait` returns promptly.
+    healthcheck:
+      interval: 5s
     depends_on:
       postgres:
         condition: service_healthy
