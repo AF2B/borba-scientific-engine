@@ -130,12 +130,19 @@ extension Request {
         case .valueNotFound(_, let context):
             ErrorDetail(field: nonEmpty(FieldPath.render(context.codingPath)), reason: nullReason)
         case .dataCorrupted(let context):
-            context.codingPath.isEmpty
-                ? ErrorDetail(reason: notJSONReason)
-                : ErrorDetail(field: FieldPath.render(context.codingPath), reason: malformedReason)
+            corruptionDetail(at: context.codingPath)
         @unknown default:
             ErrorDetail(reason: notJSONReason)
         }
+    }
+
+    /// Corruption at the root means the body is not JSON at all; deeper, a value is malformed.
+    private static func corruptionDetail(at path: [any CodingKey]) -> ErrorDetail {
+        guard !path.isEmpty else {
+            return ErrorDetail(reason: notJSONReason)
+        }
+
+        return ErrorDetail(field: FieldPath.render(path), reason: malformedReason)
     }
 
     private static func nonEmpty(_ path: String) -> String? {
