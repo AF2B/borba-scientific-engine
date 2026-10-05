@@ -10,7 +10,6 @@ enum PageCursorCodec {
     private static let version = "v1"
     private static let separator = "."
     private static let fieldCount = 3
-    private static let microsecondsPerSecond = 1_000_000.0
     private static let wholeMicrosecondsPerSecond: Int64 = 1_000_000
 
     /// The instants a cursor may name are the years 0001 through 9999 of RFC 3339, the range of every timestamp the API
@@ -30,7 +29,7 @@ enum PageCursorCodec {
     /// - Parameter cursor: The position of the last entry of a page.
     /// - Returns: The token, safe to put in a URL.
     static func encode(_ cursor: PageCursor) -> String {
-        let microseconds = Int64((cursor.createdAt.timeIntervalSince1970 * microsecondsPerSecond).rounded())
+        let microseconds = cursor.createdAt.wholeMicrosecondsSinceEpoch
         let payload = [version, String(microseconds), cursor.id.description].joined(separator: separator)
 
         return Base64URL.encode(Data(payload.utf8))
@@ -61,7 +60,7 @@ enum PageCursorCodec {
         }
 
         return PageCursor(
-            createdAt: Date(timeIntervalSince1970: Double(microseconds) / microsecondsPerSecond),
+            createdAt: Date(wholeMicrosecondsSinceEpoch: microseconds),
             id: CalculationID(identifier)
         )
     }

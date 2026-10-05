@@ -20,15 +20,10 @@ private enum InstantRange {
 
 @Suite("PageCursorCodec")
 struct PageCursorCodecTests {
-    private static let microsecondsPerSecond = 1_000_000.0
     private static let anyIdentifier = "00000000-0000-7000-8000-000000000001"
 
     private static func token(microseconds: Int64) -> String {
         Base64URL.encode(Data("v1.\(microseconds).\(anyIdentifier)".utf8))
-    }
-
-    private static func microseconds(of date: Date) -> Int64 {
-        Int64((date.timeIntervalSince1970 * microsecondsPerSecond).rounded())
     }
 
     @Test("returns the position it was given, to the microsecond")
@@ -40,7 +35,7 @@ struct PageCursorCodecTests {
 
         let decoded = try #require(PageCursorCodec.decode(PageCursorCodec.encode(cursor)))
 
-        #expect(Self.microseconds(of: decoded.createdAt) == Self.microseconds(of: cursor.createdAt))
+        #expect(decoded.createdAt.wholeMicrosecondsSinceEpoch == cursor.createdAt.wholeMicrosecondsSinceEpoch)
         #expect(decoded.id == cursor.id)
     }
 

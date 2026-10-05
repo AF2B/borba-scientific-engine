@@ -1,3 +1,4 @@
+import BorbaScientificCore
 import Foundation
 
 /// The one place that decides how JSON is written and read, so every response and every request body follow the
@@ -41,7 +42,7 @@ enum Timestamp {
     /// - Parameter date: The instant to write.
     /// - Returns: The ISO 8601 text.
     static func format(_ date: Date) -> String {
-        let microseconds = Int64((date.timeIntervalSince1970 * Double(microsecondsPerSecond)).rounded())
+        let microseconds = date.wholeMicrosecondsSinceEpoch
 
         var seconds = microseconds / microsecondsPerSecond
         var remainder = microseconds % microsecondsPerSecond
