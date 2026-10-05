@@ -1,0 +1,141 @@
+name: Deploy
+
+# Deploys a published image to an environment, verifies the deployment from the outside and puts the previous version back
+# when it fails. Nothing here knows the platform: that is the provider named by the DEPLOY_PROVIDER variable of the GitHub
+# environment (Scripts/deploy/providers). Until one is configured, a deployment is refused and a dry run only reports the
+# plan. See Documentation/Operations/deployment.md and ADR-009.
+#
+# To roll back by hand, run this workflow again with the version to return to.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy
+        type: choice
+        options: [staging, production]
+        required: true
+      version:
+        description: "What to deploy: a release (v1.2.3) or a commit (sha-1a2b3c4). Never latest and never a branch."
+        type: string
+        required: true
+      dry_run:
+        description: Report the plan and check the configuration, but change nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Two deployments to one environment never overlap, and one is never cancelled half way.
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve:
+    name: Resolve the image
+    # The workflow that runs is the one on the chosen ref: only the default branch's is trusted to deploy.
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    outputs:
+      reference: ${{ steps.resolve.outputs.reference }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Log in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A tag can be moved and a digest cannot: what is deployed is the digest this step finds.
+      - name: Resolve the version to an image by digest
+        id: resolve
+        env:
+          REPOSITORY: ghcr.io/${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+        run: Scripts/deploy/resolve-image.sh "${REPOSITORY,,}" "${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # Only an image that the Registry pipeline of this repository built is deployed.
+      - name: Verify where the image was built
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REFERENCE: ${{ steps.resolve.outputs.reference }}
+        run: |
+          gh attestation verify "oci://${REFERENCE}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/registry.yml"
+
+      - name: Summarize the plan
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          REFERENCE: ${{ steps.resolve.outputs.reference }}
+          COMMIT: ${{ steps.resolve.outputs.commit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### Deployment plan"
+            echo
+            echo "- Environment: \`${ENVIRONMENT}\`"
+            echo "- Image: \`${REFERENCE}\`"
+            echo "- Commit: \`${COMMIT}\`"
+            echo "- Dry run: \`${DRY_RUN}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: ${{ inputs.dry_run && 'Plan for' || 'Deploy to' }} ${{ inputs.environment }}
+    needs: resolve
+    # GitHub's runners by default. A platform that can only be reached from inside its own network is served by a
+    # self-hosted runner there: set DEPLOY_RUNNER to its labels as JSON, such as ["self-hosted", "staging"].
+    runs-on: ${{ fromJSON(vars.DEPLOY_RUNNER || '"ubuntu-latest"') }}
+    timeout-minutes: 60
+    # Approvals, the branches that may deploy, and the environment's secrets and variables live in the GitHub environment.
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.DEPLOY_BASE_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Write the environment file
+        env:
+          ENVIRONMENT_FILE: ${{ secrets.DEPLOY_ENV_FILE }}
+        run: |
+          if [[ -n "${ENVIRONMENT_FILE}" ]]; then
+            umask 077
+            printf '%s\n' "${ENVIRONMENT_FILE}" > "${RUNNER_TEMP}/deploy.env"
+            echo "DEPLOY_ENV_FILE=${RUNNER_TEMP}/deploy.env" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Deploy and verify
+        env:
+          DEPLOY_PROVIDER: ${{ vars.DEPLOY_PROVIDER }}
+          BASE_URL: ${{ vars.DEPLOY_BASE_URL }}
+          REFERENCE: ${{ needs.resolve.outputs.reference }}
+          COMMIT: ${{ needs.resolve.outputs.commit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          arguments=(--image "${REFERENCE}" --commit "${COMMIT}" --url "${BASE_URL}")
+          if [[ "${DRY_RUN}" == "true" ]]; then
+            arguments+=(--dry-run)
+          fi
+          Scripts/ci-summary.sh "Deployment" Scripts/deploy.sh "${arguments[@]}"
+
+      - name: Remove the environment file
+        if: ${{ always() }}
+        run: rm -f "${RUNNER_TEMP}/deploy.env"
