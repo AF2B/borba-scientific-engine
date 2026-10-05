@@ -85,6 +85,43 @@ struct CalculationValueTests {
         }
     }
 
+    @Test(
+        "refuses a NUL in text or in the name of a field, wherever it is, because no store of text can keep it",
+        arguments: [
+            #""a\u0000b""#,
+            #"["a", "b\u0000"]"#,
+            #"{"field": "value\u0000"}"#,
+            #"{"field\u0000": 1}"#,
+            #"[[{"field": ["x\u0000"]}]]"#,
+        ]
+    )
+    func refusesNUL(json: String) {
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(CalculationValue.self, from: Data(json.utf8))
+        }
+    }
+
+    @Test("keeps every other control character, which JSON can carry and a store can keep")
+    func keepsOtherControlCharacters() throws {
+        let decoded = try JSONDecoder().decode(CalculationValue.self, from: Data(#""a\u0001\tb\n\u001f""#.utf8))
+
+        #expect(decoded == .text("a\u{1}\tb\n\u{1F}"))
+    }
+
+    @Test("still reads a list as a list and an object as an object, however deep they nest")
+    func readsNestedStructures() throws {
+        let decoded = try JSONDecoder().decode(
+            CalculationValue.self,
+            from: Data(#"[{"a": [1, "x", {"b": []}]}, [2, [3]]]"#.utf8)
+        )
+
+        let expected: CalculationValue = [
+            ["a": [1, "x", ["b": []]]],
+            [2, [3]],
+        ]
+        #expect(decoded == expected)
+    }
+
     @Test("encodes whole numbers without a fractional part")
     func encodesWholeNumbers() throws {
         let data = try encoder.encode(CalculationValue.numbers([5, 0.25]))

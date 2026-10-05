@@ -75,6 +75,12 @@ struct HistoryQueryTests {
             ("created_from", "yesterday"),
             ("created_before", "2026-13-01T00:00:00Z"),
             ("cursor", "not-a-cursor"),
+            ("module", "Statistics"),
+            ("module", "two words"),
+            ("module", "a\u{0}b"),
+            ("module", "9lives"),
+            ("operation", "mean!"),
+            ("operation", "\u{0}"),
         ]
     )
     func invalidValues(name: String, value: String) {

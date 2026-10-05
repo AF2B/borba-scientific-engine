@@ -1,3 +1,27 @@
+/// What a name looks like: a lowercase letter, then lowercase letters, digits and underscores, in at most
+/// ``maximumLength`` characters. Every module and operation of the engine has such a name.
+public enum NameSyntax {
+    /// The longest name.
+    public static let maximumLength = 64
+
+    private static let underscore = UInt8(ascii: "_")
+    private static let lowercaseLetters = UInt8(ascii: "a")...UInt8(ascii: "z")
+    private static let digits = UInt8(ascii: "0")...UInt8(ascii: "9")
+
+    /// Whether a text has the form of a name.
+    ///
+    /// - Parameter text: The text to check.
+    /// - Returns: `true` when it is a name.
+    public static func isValid(_ text: String) -> Bool {
+        let bytes = text.utf8
+        guard (1...maximumLength).contains(bytes.count), let first = bytes.first, lowercaseLetters.contains(first)
+        else {
+            return false
+        }
+        return bytes.allSatisfy { lowercaseLetters.contains($0) || digits.contains($0) || $0 == underscore }
+    }
+}
+
 /// A case-sensitive identifier written in lowercase words separated by underscores, such as `compound_interest`.
 ///
 /// The `Namespace` type parameter is a phantom: it keeps module names and operation names from being mixed up
@@ -10,6 +34,17 @@ public struct Name<Namespace>: Hashable, Sendable, Comparable, Codable, CustomSt
     ///
     /// - Parameter rawValue: The identifier as it appears on the wire.
     public init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    /// Wraps a raw identifier that someone else chose, only when it has the form of a name (see ``NameSyntax``); the
+    /// initializer fails otherwise.
+    ///
+    /// - Parameter rawValue: The text to wrap.
+    public init?(validating rawValue: String) {
+        guard NameSyntax.isValid(rawValue) else {
+            return nil
+        }
         self.rawValue = rawValue
     }
 

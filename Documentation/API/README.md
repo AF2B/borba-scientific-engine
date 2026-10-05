@@ -143,6 +143,10 @@ filter cannot silently list everything.
 | Calculations of a batch running at once | 8 | `BATCH_CONCURRENCY` |
 | History page | 100 | — |
 
+Text in a request, and the names of its fields, never contains a NUL character (`\u0000`): JSON can write one, but a
+database cannot store it, so it is refused with `400`, naming the field. The `module` and `operation` filters of the history
+are names (lowercase letters, digits and underscores, at most 64 characters), and a filter that is not one is refused.
+
 ## Security
 
 The API sets `X-Content-Type-Options: nosniff`, a `Content-Security-Policy` that allows nothing, `X-Frame-Options: DENY`

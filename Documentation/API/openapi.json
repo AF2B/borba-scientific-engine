@@ -137,8 +137,8 @@
         "summary": "List recorded calculations",
         "description": "Newest first. Unknown query parameters are rejected, so a misspelt filter cannot silently list everything.",
         "parameters": [
-          { "name": "module", "in": "query", "description": "Only calculations of this module.", "schema": { "type": "string" } },
-          { "name": "operation", "in": "query", "description": "Only calculations of this operation.", "schema": { "type": "string" } },
+          { "name": "module", "in": "query", "description": "Only calculations of this module. A name: a lowercase letter, then lowercase letters, digits and underscores.", "schema": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64 } },
+          { "name": "operation", "in": "query", "description": "Only calculations of this operation. A name, as for `module`.", "schema": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$", "maxLength": 64 } },
           { "name": "status", "in": "query", "description": "Only calculations with this status.", "schema": { "$ref": "#/components/schemas/CalculationStatus" } },
           { "name": "created_from", "in": "query", "description": "Only calculations recorded at or after this instant (ISO 8601).", "schema": { "type": "string", "format": "date-time" } },
           { "name": "created_before", "in": "query", "description": "Only calculations recorded before this instant (ISO 8601). Must be later than `created_from`.", "schema": { "type": "string", "format": "date-time" } },

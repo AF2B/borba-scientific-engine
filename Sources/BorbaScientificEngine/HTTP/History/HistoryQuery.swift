@@ -24,6 +24,9 @@ struct HistoryQuery: Sendable, Equatable {
     private static let limitReason = "must be a whole number between 1 and \(PageRequest.maximumLimit)"
     private static let cursorReason = "is not a cursor returned by this API"
     private static let rangeReason = "must be later than created_from"
+    private static let nameReason =
+        "must be a name: a lowercase letter, then lowercase letters, digits and underscores, at most "
+        + "\(NameSyntax.maximumLength) characters"
 
     /// What the listed calculations must match.
     let filter: HistoryFilter
@@ -44,8 +47,8 @@ struct HistoryQuery: Sendable, Equatable {
         let values = collect(items, problems: &problems)
 
         let filter = HistoryFilter(
-            module: values[.module].map(ModuleName.init),
-            operation: values[.operation].map(OperationName.init),
+            module: parse(values[.module], as: .module, problems: &problems) { ModuleName(validating: $0) },
+            operation: parse(values[.operation], as: .operation, problems: &problems) { OperationName(validating: $0) },
             status: parse(values[.status], as: .status, problems: &problems) { CalculationStatus(rawValue: $0) },
             createdFrom: parse(values[.createdFrom], as: .createdFrom, problems: &problems, using: Timestamp.parse),
             createdBefore: parse(
@@ -122,7 +125,7 @@ struct HistoryQuery: Sendable, Equatable {
         case .cursor:
             cursorReason
         case .module, .operation:
-            emptyReason
+            nameReason
         }
     }
 }

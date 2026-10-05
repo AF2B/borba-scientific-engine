@@ -85,6 +85,7 @@ extension Request {
     private static let wrongTypeReason = "has the wrong type"
     private static let nullReason = "must not be null"
     private static let malformedReason = "is malformed"
+    private static let nulCharacterReason = "must not contain a NUL character"
     private static let unknownFieldReason = "is not a recognised field"
 
     /// Reads the body as JSON.
@@ -130,19 +131,23 @@ extension Request {
         case .valueNotFound(_, let context):
             ErrorDetail(field: nonEmpty(FieldPath.render(context.codingPath)), reason: nullReason)
         case .dataCorrupted(let context):
-            corruptionDetail(at: context.codingPath)
+            corruptionDetail(at: context.codingPath, description: context.debugDescription)
         @unknown default:
             ErrorDetail(reason: notJSONReason)
         }
     }
 
-    /// Corruption at the root means the body is not JSON at all; deeper, a value is malformed.
-    private static func corruptionDetail(at path: [any CodingKey]) -> ErrorDetail {
+    /// Corruption at the root means the body is not JSON at all; deeper, a value is malformed, or holds a NUL character.
+    private static func corruptionDetail(
+        at path: [any CodingKey],
+        description: String
+    ) -> ErrorDetail {
         guard !path.isEmpty else {
             return ErrorDetail(reason: notJSONReason)
         }
 
-        return ErrorDetail(field: FieldPath.render(path), reason: malformedReason)
+        let reason = description == CalculationValue.nulCharacterDescription ? nulCharacterReason : malformedReason
+        return ErrorDetail(field: FieldPath.render(path), reason: reason)
     }
 
     private static func nonEmpty(_ path: String) -> String? {

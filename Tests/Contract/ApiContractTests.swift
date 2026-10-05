@@ -77,6 +77,24 @@ struct ApiContractTests {
         }
     }
 
+    @Test("refuses a NUL character in text, naming the field, without recording anything")
+    func refusesNUL() async throws {
+        try await TestApplication.run { harness in
+            let body: CalculationValue = [
+                "module": "expression",
+                "operation": "evaluate",
+                "parameters": ["expression": "1+\u{0}2", "variables": [:]],
+            ]
+
+            let response = try await harness.client.post(Self.calculationsPath, json: body)
+
+            #expect(response.status == .badRequest)
+            #expect(try response.json().at("error", "details", 0, "field") == "parameters.expression")
+            #expect(try response.json().at("error", "details", 0, "reason") == "must not contain a NUL character")
+            #expect(await harness.repository.recordCount == 0)
+        }
+    }
+
     @Test("replays an identical request that reuses an idempotency key and rejects a different one")
     func honoursIdempotencyKeys() async throws {
         try await TestApplication.run { harness in

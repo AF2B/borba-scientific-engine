@@ -93,14 +93,23 @@ extension CalculationValue {
 // MARK: - Codable
 
 extension CalculationValue: Codable {
+    /// Why a text is refused when it holds a NUL character, so that the layer that reports the failure can say so.
+    public static let nulCharacterDescription = "Text must not contain NUL characters."
+
+    private static let nulByte: UInt8 = 0
+
     /// Decodes any JSON value.
     ///
     /// The cases are tried from the most common to the least: parameters are overwhelmingly numbers, and every attempt that
     /// does not fit costs an error, so numbers are tried first, then booleans and text. A list is first tried as a list of
     /// numbers, which JSON decoders read in one pass; only a list that is not purely numeric is read element by element.
     ///
+    /// Text and the names of fields never hold a NUL character. JSON can write one, but PostgreSQL cannot store it in text
+    /// or in JSON, and the values of a request are stored with the calculation they belong to, so a NUL that got in would
+    /// surface as a failure of the database. It is refused where it enters.
+    ///
     /// - Parameter decoder: The decoder to read from.
-    /// - Throws: A decoding error when the value is not valid JSON of a supported shape.
+    /// - Throws: A decoding error when the value is not valid JSON of a supported shape, or holds a NUL character.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
 
@@ -111,14 +120,38 @@ extension CalculationValue: Codable {
         } else if let value = try? container.decode(Bool.self) {
             self = .boolean(value)
         } else if let value = try? container.decode(String.self) {
-            self = .text(value)
+            self = .text(try Self.withoutNUL(value, in: container))
         } else if let numbers = try? container.decode([Double].self) {
             self = .list(numbers.map(CalculationValue.number))
-        } else if let value = try? container.decode([CalculationValue].self) {
-            self = .list(value)
         } else {
-            self = .object(try container.decode([String: CalculationValue].self))
+            self = try Self.decodeStructure(from: container)
         }
+    }
+
+    /// A list or an object, whichever the container holds.
+    ///
+    /// Only the failure to be a list leads to reading an object. Anything else that went wrong inside is the caller's to see:
+    /// swallowing it would report a NUL deep in a list as a list that is not an object.
+    private static func decodeStructure(from container: any SingleValueDecodingContainer) throws -> CalculationValue {
+        do {
+            return .list(try container.decode([CalculationValue].self))
+        } catch DecodingError.typeMismatch {
+            let fields = try container.decode([String: CalculationValue].self)
+            for name in fields.keys {
+                _ = try withoutNUL(name, in: container)
+            }
+            return .object(fields)
+        }
+    }
+
+    private static func withoutNUL(
+        _ text: String,
+        in container: any SingleValueDecodingContainer
+    ) throws -> String {
+        guard !text.utf8.contains(nulByte) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: nulCharacterDescription)
+        }
+        return text
     }
 
     /// Encodes the value as plain JSON.
