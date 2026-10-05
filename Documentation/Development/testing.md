@@ -29,7 +29,7 @@ Tests/
   Integration/          Persistence, HTTP against PostgreSQL, Sentry over a real connection
   Performance/          Benchmarks (not run by `make test`)
   Support/              Shared fixtures: manual clock, in-memory repository, repository contract suite, …
-  HTTPSupport/          TestApplication, TestClient, FakeSentryServer: the full HTTP stack in a test
+  HTTPSupport/          TestApplication, TestClient, FakeSentryServer, HostileRequests: the full HTTP stack in a test
   IntegrationSupport/   PostgresTestDatabase: a temporary database per test
   PerformanceSupport/   Benchmark runner, latency statistics, report
 ```
@@ -48,6 +48,12 @@ Tests/
   (`response.json().at("error", "code")`), so a renamed field fails.
 - **Test the failure, not just the success.** Every guard, every classification and every error code has a test that
   reaches it.
+- **Input is hostile, and that is tested as its own layer.** `HostileInputTests` runs every operation with each parameter
+  of its example replaced, one at a time, by floating-point extremes, empty, oversized and ragged collections, malicious
+  text and values of the wrong type. `HostileRequests` is a corpus of malformed, oversized and malicious requests, run by
+  `HostileRequestTests` against the in-memory adapters and by `HostileRequestsAgainstPostgresTests` against a real
+  PostgreSQL. Nothing may crash, hang or answer `5xx`, and every error stays inside the envelope. The second run matters:
+  a test double accepts what a database refuses, and that is how a NUL in text reached the database.
 
 ## Adding to the suite
 
@@ -55,6 +61,8 @@ Tests/
 |---|---|---|
 | A calculation operation | The module's tests, with the documented examples | The operation's `examples` are executed automatically |
 | An endpoint | `ApiContractTests` | Document it in `Documentation/API/openapi.json`; the contract tests fail until you do |
+| Anything that reads a path, a query, a header or a body | Its worst inputs, in `HostileRequests` | They run against the in-memory adapters and against PostgreSQL |
+| A calculation operation's parameters | Nothing: the example you write is swept with hostile values | A new loop whose cost grows with its input must call `Cooperation.checkpoint`, or the sweep's time limit fails |
 | An error code | `ErrorCatalog`, then `Documentation/API/errors.md` and the OpenAPI `ErrorCode` enum | Tests keep the three in step |
 | A repository behaviour | `RepositoryContract` | It runs against both implementations |
 | A resilience or lifecycle rule | `Tests/Unit/Resilience` or `Tests/Unit/Lifecycle`, with `ManualClock` | A `.timeLimit` if it waits |
@@ -67,5 +75,6 @@ suite, and every test slower than `SLOW_TEST_SECONDS` (default 1). A unit test t
 something it should not. The JUnit XML is written to `.artifacts/test-reports/`.
 
 `make coverage` prints the line coverage of each source target against its minimum (core 95%, persistence 90%, engine 90%)
-and the least covered files, and fails when a target is below its minimum. `Entrypoint.swift` is deliberately at 0%: it is
-the process boundary, exercised by the smoke scripts rather than by tests.
+and the least covered files, and fails when a target is below its minimum. The process boundary (`Entrypoint.swift`, the
+signal watcher's delivery of real signals) is deliberately left to the smoke scripts rather than to tests: signals are
+process-wide, so a test that sends them depends on every test running beside it.
