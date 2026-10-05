@@ -113,6 +113,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - A forged pagination cursor that named an instant outside the years 0001 through 9999 crashed the service on the next
   listing. Cursors are now validated, the PostgreSQL adapter reports an instant it cannot represent as a failure instead of
   trapping, and tests send such cursors through the API against a real PostgreSQL.
+- A NUL character in the text of a request, or in the name of a field, made the API answer `500` when the calculation was
+  recorded, and the `module` and `operation` filters of the history did the same. A NUL is now refused at the edge with a
+  `400` that names the field, and the filters must be names. The hostile requests run against a real PostgreSQL as well
+  as against the in-memory adapters, which accepted what the database refuses.
 - Tests that run every calculation operation with hostile parameters (floating-point extremes, empty, oversized and ragged
   collections, malicious text, values of the wrong type) and send hostile requests to the API, requiring that none crashes,
   hangs or answers with a server error.

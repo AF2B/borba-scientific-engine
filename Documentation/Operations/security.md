@@ -6,7 +6,8 @@ sections before exposing it to anything you do not control.
 > **Status of this document.** It describes the controls that exist in the code and the pipelines, and the limits that are
 > known. The surfaces where input becomes a crash or an injection have been reviewed and are covered by tests: how SQL is
 > built, how requests and cursors are decoded, every conversion of a number to an integer, and the resource limits of
-> every operation. That review found one remotely triggerable crash (a forged pagination cursor), now fixed and tested.
+> every operation. That review found one remotely triggerable crash (a forged pagination cursor) and two ways to make the
+> API answer `500` (a NUL character in text, and in a history filter), all now fixed and tested.
 > A complete line-by-line review of the source has **not** been done: treat the lists below as what was designed and
 > tested, not as a clean bill of health.
 
@@ -27,7 +28,7 @@ never in the repository (`.env` is ignored, `.env.example` holds placeholders) a
 
 | Threat | Control |
 |---|---|
-| Malformed or hostile input | Every operation declares typed parameters with ranges; a request that does not match is a `400` with the field named. Unknown fields are rejected, not ignored. Bodies are bounded (`HTTP_MAX_BODY_SIZE_BYTES`, 1 MiB by default) |
+| Malformed or hostile input | Every operation declares typed parameters with ranges; a request that does not match is a `400` with the field named. Unknown fields are rejected, not ignored. Text and field names may not contain a NUL, which PostgreSQL cannot store; history filters must be names. Bodies are bounded (`HTTP_MAX_BODY_SIZE_BYTES`, 1 MiB by default) |
 | Resource exhaustion by one request | Collections are limited to 100,000 numbers, text to 1,000 characters, expressions to 1,000 characters and 64 levels of nesting, integration to 1,000,000 intervals, matrices to 100 × 100, a batch to `BATCH_MAX_SIZE` items with bounded concurrency. Every calculation runs under a time budget (`CALCULATION_TIMEOUT_MS`) and is cancelled when it exceeds it |
 | Crashes on hostile values | Every operation is run with each parameter of its example replaced, one at a time, by hostile values: the extremes of floating point, the edges of integer ranges, empty, oversized and ragged collections, malicious and oversized text, values of the wrong type. Hostile requests (nesting a hundred thousand deep, invalid UTF-8, numbers no double holds, hostile headers, paths and queries) are sent to the API. None may crash, hang or answer `5xx` |
 | Forged pagination cursors | A cursor is validated as input: it must name an instant between the years 0001 and 9999. The PostgreSQL adapter also saturates instead of trapping on an instant it cannot represent |
@@ -36,7 +37,7 @@ never in the repository (`.env` is ignored, `.env.example` holds placeholders) a
 | Secrets and personal data in logs | Keys that name a secret, the bound parameters of database statements and the password of any URL are redacted before a line is written. Client addresses, headers, query strings and bodies are never logged |
 | Personal data in error reports | The error tracker receives a code, a classification, the route template and trace identifiers: no parameters, bodies, headers or addresses. Only infrastructure and unexpected failures are reported, sampled and folded |
 | Header and log injection | A caller's `X-Request-ID` or `X-Correlation-ID` is adopted only when it is well formed (at most 128 characters of letters, digits and `._:-`); logs are JSON, so a value cannot forge a line |
-| Browser-borne attacks on responses | `X-Content-Type-Options: nosniff`, `Referrer-Policy` and `Cache-Control: no-store` on every response |
+| Browser-borne attacks on responses | `X-Content-Type-Options: nosniff`, a `Content-Security-Policy` that allows nothing, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and `Cache-Control: no-store` on every response |
 | Duplicate side effects | Idempotency keys make a retried `POST` return the recorded result; reuse of a key with a different request is refused |
 | Compromised process | Non-root numeric user, read-only filesystem, no capabilities, no setuid files, no way to gain privileges, a memory limit (ADR-008) |
 | Vulnerable dependencies | Dependencies are locked (`--force-resolved-versions`); the lockfile is audited against OSV on every change and weekly; Dependabot proposes updates |
