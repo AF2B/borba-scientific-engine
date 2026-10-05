@@ -232,10 +232,11 @@ Tests/
   Integration/             Persistence and the HTTP API against a real PostgreSQL
   Performance/             Benchmarks (release builds); PerformanceSupport/ is the harness that measures them
   Support/, HTTPSupport/, IntegrationSupport/   Shared test fixtures and harnesses
+Documentation/Architecture/ The layers, the targets and how a request travels
 Documentation/API/         HTTP guide, OpenAPI document and error catalog
 Documentation/ADR/         Architecture decision records
 Documentation/Development/ Testing and performance guides
-Documentation/Operations/  Observability guide and runbooks
+Documentation/Operations/  Observability, container, deployment and security guides
 Scripts/                   Developer and CI helper scripts
 ```
 

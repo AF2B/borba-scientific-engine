@@ -98,6 +98,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `validate-release`; `pull-up` to run a published image; `metrics`; and `test-performance`. SwiftLint and the scanners
   run from pinned container images, so everyone uses one version.
 - Architecture decision record for CI/CD and the deployment guide.
+- Security guide with the controls that exist, the assumptions about the gateway the service runs behind and the known gaps
+  (authentication, rate limiting, retention and erasure), a vulnerability reporting policy, and an architecture overview.
 
 ### Changed
 
