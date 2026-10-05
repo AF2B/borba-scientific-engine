@@ -84,19 +84,29 @@ fi
 
 exit_code=0
 wait "${SERVER_PID}" 2>/dev/null || exit_code=$?
-[[ "${exit_code}" -eq 0 ]] && check "the exit code is 0" ok || check "the exit code is 0 (got ${exit_code})" fail
+if [[ "${exit_code}" -eq 0 ]]; then
+    check "the exit code is 0" ok
+else
+    check "the exit code is 0 (got ${exit_code})" fail
+fi
 
 wait 2>/dev/null || true
 completed=0
 for index in $(seq 1 "${CONCURRENCY}"); do
     [[ "$(cat "${WORK_DIR}/request-${index}.status" 2>/dev/null)" == "201" ]] && completed=$((completed + 1))
 done
-[[ "${completed}" -eq "${CONCURRENCY}" ]] \
-    && check "every request accepted before the signal completed with 201 (${completed}/${CONCURRENCY})" ok \
-    || check "every request accepted before the signal completed with 201 (${completed}/${CONCURRENCY})" fail
+if [[ "${completed}" -eq "${CONCURRENCY}" ]]; then
+    check "every request accepted before the signal completed with 201 (${completed}/${CONCURRENCY})" ok
+else
+    check "every request accepted before the signal completed with 201 (${completed}/${CONCURRENCY})" fail
+fi
 
 dropped="$(grep -c '"error_code"\|Request failed' "${LOG_FILE}" || true)"
-[[ "${dropped}" -eq 0 ]] && check "no request failed during shutdown" ok || check "no request failed during shutdown (${dropped} logged)" fail
+if [[ "${dropped}" -eq 0 ]]; then
+    check "no request failed during shutdown" ok
+else
+    check "no request failed during shutdown (${dropped} logged)" fail
+fi
 
 if [[ "${failures}" -ne 0 ]]; then
     echo "Graceful shutdown check FAILED"

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Verifies the container image the way it is meant to run: through the Compose stack, as an unprivileged user, on a read-only
-# filesystem, without capabilities, with the migrations applied by their own service and with Docker's health check
-# watching it. It also checks the behaviour the health check relies on: the container stays healthy while the database is
-# down (liveness) even though it stops being ready, and it exits with status 0 when it is stopped.
+# Verifies the container image the way it is meant to run: through the Compose stack, as an unprivileged user, on a
+# read-only filesystem, without capabilities, with the migrations applied by their own service and with Docker's health
+# check watching it. It also checks the behaviour the health check relies on: the container stays healthy while the
+# database is down (liveness) even though it stops being ready, and it exits with status 0 when it is stopped.
 #
 # Usage: Scripts/smoke-container.sh
 #
@@ -104,6 +104,21 @@ image_inspect() {
     docker image inspect --format "$1" "${IMAGE}"
 }
 
+# Reads a status line of the first process of the application container, without whitespace.
+process_status() {
+    compose exec -T app sh -c "grep $1 /proc/1/status" | tr -d '[:space:]'
+}
+
+has_no_setuid_files() {
+    local files
+    files="$(docker run --rm --user root --entrypoint find "${IMAGE}" / -xdev -perm /6000 -type f)" || return 1
+    [[ -z "${files}" ]]
+}
+
+reports_version() {
+    curl -s -m 5 "${BASE_URL}/version" | jq -e '.version'
+}
+
 echo "Starting the stack from ${IMAGE}"
 if ! compose up --detach --no-build --wait --wait-timeout "${STARTUP_TIMEOUT_SECONDS}" >"${WORK_DIR}/up.log" 2>&1; then
     check "the stack becomes healthy within ${STARTUP_TIMEOUT_SECONDS}s" fail
@@ -114,67 +129,61 @@ fi
 check "the stack becomes healthy within ${STARTUP_TIMEOUT_SECONDS}s" ok
 
 echo "The image"
-[[ "$(image_inspect '{{.Config.User}}')" == "${EXPECTED_USER}" ]] \
-    && check "runs as the numeric user ${EXPECTED_USER}" ok || check "runs as the numeric user ${EXPECTED_USER}" fail
-[[ "$(image_inspect '{{if .Config.Healthcheck}}defined{{end}}')" == "defined" ]] \
-    && check "defines a health check" ok || check "defines a health check" fail
-[[ -n "$(image_inspect '{{index .Config.Labels "org.opencontainers.image.version"}}')" ]] \
-    && check "carries OCI labels" ok || check "carries OCI labels" fail
-setuid_files="$(docker run --rm --user root --entrypoint find "${IMAGE}" / -xdev -perm /6000 -type f 2>/dev/null || true)"
-[[ -z "${setuid_files}" ]] && check "contains no setuid or setgid files" ok || check "contains no setuid or setgid files" fail
+expect_success "runs as the numeric user ${EXPECTED_USER}" \
+    test "$(image_inspect '{{.Config.User}}')" = "${EXPECTED_USER}"
+expect_success "defines a health check" \
+    test "$(image_inspect '{{if .Config.Healthcheck}}defined{{end}}')" = "defined"
+expect_success "carries OCI labels" \
+    test -n "$(image_inspect '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+expect_success "contains no setuid or setgid files" has_no_setuid_files
 
 echo "The running container"
-[[ "$(inspect app '{{.State.Health.Status}}')" == "healthy" ]] \
-    && check "is reported healthy by Docker" ok || check "is reported healthy by Docker" fail
-[[ "$(compose exec -T app id -u)" == "${EXPECTED_UID}" ]] \
-    && check "runs as uid ${EXPECTED_UID}" ok || check "runs as uid ${EXPECTED_UID}" fail
+expect_success "is reported healthy by Docker" \
+    test "$(inspect app '{{.State.Health.Status}}')" = "healthy"
+expect_success "runs as uid ${EXPECTED_UID}" \
+    test "$(compose exec -T app id -u)" = "${EXPECTED_UID}"
 expect_failure "cannot write to the application directory (read-only filesystem)" \
     compose exec -T app sh -c 'echo x > /app/write-test'
-expect_success "can write to its scratch directory" compose exec -T app sh -c 'echo x > /tmp/write-test'
-[[ "$(compose exec -T app sh -c 'grep CapEff /proc/1/status' | tr -d '[:space:]')" == "CapEff:0000000000000000" ]] \
-    && check "holds no Linux capabilities" ok || check "holds no Linux capabilities" fail
-[[ "$(compose exec -T app sh -c 'grep NoNewPrivs /proc/1/status' | tr -d '[:space:]')" == "NoNewPrivs:1" ]] \
-    && check "cannot gain privileges" ok || check "cannot gain privileges" fail
-expect_success "applies the migrations again without effect (idempotent migrate service)" compose run --rm --no-deps migrate
+expect_success "can write to its scratch directory" \
+    compose exec -T app sh -c 'echo x > /tmp/write-test'
+expect_success "holds no Linux capabilities" \
+    test "$(process_status CapEff)" = "CapEff:0000000000000000"
+expect_success "cannot gain privileges" \
+    test "$(process_status NoNewPrivs)" = "NoNewPrivs:1"
+expect_success "applies the migrations again without effect (idempotent migrate service)" \
+    compose run --rm --no-deps migrate
 
 echo "The API through the published port"
-[[ "$(status_of "${BASE_URL}/health")" == "200" ]] && check "GET /health answers 200" ok || check "GET /health answers 200" fail
-[[ "$(status_of "${BASE_URL}/ready")" == "200" ]] && check "GET /ready answers 200" ok || check "GET /ready answers 200" fail
-curl -s -m 5 "${BASE_URL}/version" | jq -e '.version' >/dev/null 2>&1 \
-    && check "GET /version names the build" ok || check "GET /version names the build" fail
+expect_success "GET /health answers 200" test "$(status_of "${BASE_URL}/health")" = "200"
+expect_success "GET /ready answers 200" test "$(status_of "${BASE_URL}/ready")" = "200"
+expect_success "GET /version names the build" reports_version
 
 created="$(curl -s -m 10 -X POST "${BASE_URL}/api/v1/calculations" -H 'Content-Type: application/json' \
     -d '{"module":"statistics","operation":"mean","parameters":{"values":[1,2,3,4]}}' || true)"
 identifier="$(jq -r '.id // empty' <<<"${created}" 2>/dev/null || true)"
-[[ -n "${identifier}" ]] && check "POST /api/v1/calculations records a calculation in PostgreSQL" ok \
-    || check "POST /api/v1/calculations records a calculation in PostgreSQL" fail
-[[ "$(status_of "${BASE_URL}/api/v1/calculations/${identifier:-missing}")" == "200" ]] \
-    && check "the recorded calculation can be read back" ok || check "the recorded calculation can be read back" fail
+expect_success "POST /api/v1/calculations records a calculation in PostgreSQL" test -n "${identifier}"
+expect_success "the recorded calculation can be read back" \
+    test "$(status_of "${BASE_URL}/api/v1/calculations/${identifier:-missing}")" = "200"
 
 echo "With the database down"
 compose stop postgres >/dev/null 2>&1
-wait_for_status "${BASE_URL}/ready" 503 "${STATE_TIMEOUT_SECONDS}" \
-    && check "GET /ready answers 503" ok || check "GET /ready answers 503" fail
-[[ "$(status_of "${BASE_URL}/health")" == "200" ]] \
-    && check "GET /health still answers 200 (liveness does not depend on the database)" ok \
-    || check "GET /health still answers 200 (liveness does not depend on the database)" fail
+expect_success "GET /ready answers 503" wait_for_status "${BASE_URL}/ready" 503 "${STATE_TIMEOUT_SECONDS}"
+expect_success "GET /health still answers 200 (liveness does not depend on the database)" \
+    test "$(status_of "${BASE_URL}/health")" = "200"
 sleep "${HEALTH_SAMPLE_SECONDS}"
-[[ "$(inspect app '{{.State.Health.Status}}')" == "healthy" ]] \
-    && check "Docker keeps reporting the container healthy, so it is not restarted for a database outage" ok \
-    || check "Docker keeps reporting the container healthy, so it is not restarted for a database outage" fail
+expect_success "Docker keeps reporting the container healthy, so it is not restarted for a database outage" \
+    test "$(inspect app '{{.State.Health.Status}}')" = "healthy"
 
 compose start postgres >/dev/null 2>&1
-wait_for_status "${BASE_URL}/ready" 200 "${STATE_TIMEOUT_SECONDS}" \
-    && check "GET /ready answers 200 again once the database is back" ok \
-    || check "GET /ready answers 200 again once the database is back" fail
+expect_success "GET /ready answers 200 again once the database is back" \
+    wait_for_status "${BASE_URL}/ready" 200 "${STATE_TIMEOUT_SECONDS}"
 
 echo "Stopping"
 started="${SECONDS}"
 compose stop --timeout "${STOP_GRACE_SECONDS}" app >/dev/null 2>&1
 elapsed=$((SECONDS - started))
-exit_code="$(inspect app '{{.State.ExitCode}}')"
-[[ "${exit_code}" == "0" ]] && check "exits with status 0 after SIGTERM (took ${elapsed}s)" ok \
-    || check "exits with status 0 after SIGTERM (got ${exit_code})" fail
+expect_success "exits with status 0 after SIGTERM (took ${elapsed}s)" \
+    test "$(inspect app '{{.State.ExitCode}}')" = "0"
 
 if [[ "${failures}" -ne 0 ]]; then
     echo "Container check FAILED (${failures})"
