@@ -72,6 +72,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `make benchmark`, `make coverage` (a line-coverage floor per source target) and `make test-report` (time per suite
   and the slowest tests), and `Scripts/compare-benchmarks.sh` to compare two benchmark runs.
 - Architecture decision record for testing and performance, and the testing and performance guides.
+- `borba-scientific-engine healthcheck`, which asks the configured instance for `/health` and exits 0 only on `200 OK`; it
+  is the container's health check, since the image has no `curl`.
+- Container hardening: a numeric non-root user, application files that the service cannot rewrite, no setuid or setgid
+  files, OCI labels, an explicit stop signal and a Docker health check. Compose runs the application and the migration job
+  on a read-only filesystem, without capabilities, without the means to gain privileges and within a memory limit, and waits
+  30 seconds for a graceful stop.
+- `make smoke-container`, which verifies the image through Compose: its user, filesystem, capabilities and labels, the API
+  and PostgreSQL behind it, that a database outage makes the container unready but not unhealthy, and that it stops with
+  status 0.
+- Architecture decision record and operations guide for the container.
 
 ### Changed
 

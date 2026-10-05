@@ -98,6 +98,16 @@ See the [testing guide](Documentation/Development/testing.md), the
 [performance guide](Documentation/Development/performance.md) (method, reference numbers and what measuring found) and
 [ADR-007](Documentation/ADR/ADR-007-testing-and-performance.md).
 
+## Container
+
+One image, built in two stages, that runs unprivileged (`10001:10001`), on a read-only filesystem, without capabilities and
+without the means to gain any. Its health check is answered by the executable itself (`borba-scientific-engine
+healthcheck`, liveness only, so a database outage never restarts it) and it stops gracefully on `SIGTERM`. Migrations are a
+separate one-shot service. `make smoke-container` verifies all of this against the running container.
+
+See the [container guide](Documentation/Operations/container.md) and
+[ADR-008](Documentation/ADR/ADR-008-container-image-and-runtime.md).
+
 ## Getting started
 
 ### Prerequisites
@@ -167,6 +177,8 @@ secret is ever printed. See [`.env.example`](.env.example) for the complete, doc
 | `make migrate`      | Apply the database migrations locally                |
 | `make lint`         | SwiftLint in strict mode                             |
 | `make format`       | Format sources with `swift format`                   |
+| `make docker-build` | Build the production container image                 |
+| `make smoke-container` | Verify the image: unprivileged, read-only, healthy, stops gracefully |
 | `make up` / `down`  | Start / stop the Docker Compose stack                |
 | `make logs`         | Follow the stack logs                                |
 | `make ci`           | Everything the CI pipeline enforces                  |
