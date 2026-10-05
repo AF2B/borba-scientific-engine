@@ -36,6 +36,7 @@ let package = Package(
         .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.33.1"),
         .package(url: "https://github.com/vapor/sql-kit.git", from: "3.36.0"),
         .package(url: "https://github.com/swift-server-community/SwiftPrometheus.git", from: "2.3.0"),
+        .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.36.2"),
         .package(url: "https://github.com/vapor/vapor.git", from: "4.122.2"),
     ],
     targets: [
@@ -64,12 +65,14 @@ let package = Package(
             dependencies: [
                 "BorbaScientificCore",
                 "BorbaScientificPersistence",
+                .product(name: "AsyncHTTPClient", package: "async-http-client"),
                 .product(name: "Crypto", package: "swift-crypto"),
                 .product(name: "Fluent", package: "fluent"),
                 .product(name: "FluentKit", package: "fluent-kit"),
                 .product(name: "FluentPostgresDriver", package: "fluent-postgres-driver"),
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Metrics", package: "swift-metrics"),
+                .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "Prometheus", package: "SwiftPrometheus"),
                 .product(name: "Vapor", package: "vapor"),
             ],

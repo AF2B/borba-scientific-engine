@@ -7,7 +7,8 @@ public enum Entrypoint {
     /// Loads the configuration, boots the application and blocks until it is asked to stop.
     ///
     /// The Vapor command to execute (`serve`, `routes`, ...) is taken from the command-line arguments and
-    /// defaults to `serve`.
+    /// defaults to `serve`. The `healthcheck` command is the exception: it probes a running instance and exits, without
+    /// booting an application of its own.
     ///
     /// - Parameters:
     ///   - variables: Environment variables the configuration is read from.
@@ -17,6 +18,10 @@ public enum Entrypoint {
         environment variables: [String: String],
         arguments: [String]
     ) async -> Int32 {
+        if arguments.dropFirst().first == HealthProbe.commandName {
+            return await HealthProbe.run(environment: variables)
+        }
+
         do {
             let configuration = try ConfigurationLoader.load(from: variables)
             LoggingBootstrap.bootstrap(configuration.logging)
