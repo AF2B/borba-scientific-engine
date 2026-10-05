@@ -286,6 +286,7 @@ Documentation/ADR/         Architecture decision records
 Documentation/Development/ Testing and performance guides
 Documentation/Operations/  Observability, container, deployment and security guides
 Scripts/                   Developer and CI helper scripts
+CONTEXT.md                 Technical context for whoever, person or AI, is about to change the code
 ```
 
 ## License

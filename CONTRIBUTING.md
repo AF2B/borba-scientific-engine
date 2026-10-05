@@ -36,7 +36,9 @@ make ci         # everything the pipelines enforce, before you push
 
 ## Where things are
 
-The [architecture overview](Documentation/Architecture/README.md) says what is where.
+[`CONTEXT.md`](CONTEXT.md) is the quickest orientation: the bounded contexts, the layers, the path of a request and the
+decisions that are not obvious from the code. The [architecture overview](Documentation/Architecture/README.md) says what
+is where.
 [Adding a calculation module](Documentation/Development/adding-a-calculation-module.md) walks through the most common
 extension, and the [testing guide](Documentation/Development/testing.md) explains the layers of tests and how to run each.
 
