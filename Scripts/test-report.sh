@@ -64,9 +64,14 @@ awk '
     }' "${SWIFT_TESTING_XML}" > "${CASES}"
 
 total_tests="$(wc -l < "${CASES}")"
-# The wall time of the whole run, as the runner reports it. The times of the individual tests overlap when they run in
-# parallel, so their sum overstates it, and a parameterized test's cases share one measurement; read them as a ranking.
-wall_seconds="$(awk 'match($0, /<testsuite [^>]*time="[^"]*"/) { s = substr($0, RSTART, RLENGTH); match(s, /time="[^"]*"/); printf "%.2f", substr(s, RSTART + 6, RLENGTH - 7); exit }' "${SWIFT_TESTING_XML}")"
+# The wall time of the whole run, as the runner reports it: one <testsuite> per test target, run one after another. The
+# times of the individual tests overlap when they run in parallel, so their sum overstates it, and a parameterized test's
+# cases share one measurement; read them as a ranking.
+wall_seconds="$(awk '
+    /<testsuite / {
+        if (match($0, / time="[^"]*"/)) { total += substr($0, RSTART + 7, RLENGTH - 8) }
+    }
+    END { printf "%.2f", total }' "${SWIFT_TESTING_XML}")"
 slowest="$(sort -t$'\t' -k1,1 -g -r "${CASES}" | sed -n '1p' | cut -f1)"
 
 printf '\n%s tests in %s s of wall time (the slowest test took %s s)\n' "${total_tests}" "${wall_seconds:-?}" "${slowest:-0}"
