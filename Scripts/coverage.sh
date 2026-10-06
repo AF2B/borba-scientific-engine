@@ -10,8 +10,15 @@
 #   COVERAGE_PERSISTENCE_MINIMUM   ... of BorbaScientificPersistence (default: 90)
 #   COVERAGE_ENGINE_MINIMUM        ... of BorbaScientificEngine (default: 90)
 #   TEST_DATABASE_URL              PostgreSQL server for the integration tests (they are skipped without it)
+#   COVERAGE_SUMMARY               Where the per-file summary is written (default: .artifacts/coverage-summary.json)
+#   LLVM_COV                       The llvm-cov command (default: llvm-cov; on macOS: "xcrun llvm-cov")
 #
-# Requires jq. The benchmarks are excluded: they measure time and add no coverage.
+# Requires jq and llvm-cov, which the Swift toolchain provides. The benchmarks are excluded: they measure time and add no
+# coverage.
+#
+# SwiftPM's own export lists every dependency as well and runs to hundreds of megabytes, which jq cannot read without
+# gigabytes of memory. llvm-cov summarizes just the project's objects, in a few kilobytes and a fraction of a second, from
+# the same profile data, with the same numbers.
 set -euo pipefail
 
 SWIFT="${SWIFT:-swift}"
@@ -30,10 +37,34 @@ if [[ "${1:-}" != "--no-run" ]]; then
     "${SWIFT}" test --enable-code-coverage --skip PerformanceTests
 fi
 
-REPORT="$("${SWIFT}" test --show-codecov-path)"
-[[ -f "${REPORT}" ]] || { echo "No coverage data at ${REPORT}; run the tests first" >&2; exit 2; }
+CODECOV_DIR="$(dirname "$("${SWIFT}" test --show-codecov-path)")"
+PROFILE_DATA="${CODECOV_DIR}/default.profdata"
+[[ -f "${PROFILE_DATA}" ]] || { echo "No coverage data at ${PROFILE_DATA}; run the tests first" >&2; exit 2; }
 
-# Only the project's own sources count: the coverage data also lists every dependency.
+read -r -a LLVM_COV_COMMAND <<<"${LLVM_COV:-llvm-cov}"
+command -v "${LLVM_COV_COMMAND[0]}" >/dev/null || { echo "coverage.sh needs llvm-cov (set LLVM_COV)" >&2; exit 2; }
+
+# The objects of the project's own targets, wherever the build system keeps them: one per module, or one per source file.
+PRODUCTS_DIR="$(dirname "${CODECOV_DIR}")"
+objects=()
+for target in "${TARGETS[@]}"; do
+    while IFS= read -r object; do
+        objects+=("${object}")
+    done < <(find "${PRODUCTS_DIR}" -path '*/checkouts' -prune -o -type f \
+        \( -name "${target}.o" -o -path "*/${target}.build/*.o" \) -print)
+done
+[[ ${#objects[@]} -gt 0 ]] || { echo "No object files of ${TARGETS[*]} under ${PRODUCTS_DIR}" >&2; exit 2; }
+
+export_arguments=(export --summary-only "-instr-profile=${PROFILE_DATA}" "${objects[0]}")
+for object in "${objects[@]:1}"; do
+    export_arguments+=(-object "${object}")
+done
+
+REPORT="${COVERAGE_SUMMARY:-.artifacts/coverage-summary.json}"
+mkdir -p "$(dirname "${REPORT}")"
+"${LLVM_COV_COMMAND[@]}" "${export_arguments[@]}" >"${REPORT}"
+
+# Only the project's own sources count.
 ROOT="$(pwd -P)"
 
 failures=0

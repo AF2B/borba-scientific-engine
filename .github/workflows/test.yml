@@ -126,9 +126,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: Scripts/ci-summary.sh "Test durations" Scripts/test-report.sh --no-run
 
-      - name: Export the coverage data
-        run: cp "$(swift test --show-codecov-path)" .artifacts/coverage.json
-
       - name: Enforce the coverage floors
         run: Scripts/ci-summary.sh "Coverage" Scripts/coverage.sh --no-run
 

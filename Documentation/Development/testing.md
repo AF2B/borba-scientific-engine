@@ -12,7 +12,7 @@ How the suite is organised, how to run each part and how to add to it. The reaso
 | `make test-contract` | The HTTP API against the OpenAPI document, in memory | nothing |
 | `make test-integration` | Adapters and the whole service against a real PostgreSQL | PostgreSQL |
 | `make test-report` | The fast suites, with the slowest tests and the time per suite | nothing |
-| `make coverage` | Everything, with a minimum line coverage per target | PostgreSQL, `jq` |
+| `make coverage` | Everything, with a minimum line coverage per target | PostgreSQL, `jq`, `llvm-cov` (part of the Swift toolchain) |
 | `make benchmark` | The benchmarks, in release mode | PostgreSQL |
 | `make smoke-shutdown` | The real executable: SIGTERM with requests in flight | PostgreSQL |
 
