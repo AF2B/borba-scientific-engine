@@ -70,8 +70,10 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: Scripts/deploy/resolve-image.sh "${REPOSITORY,,}" "${VERSION}" >> "$GITHUB_OUTPUT"
 
-      # Only an image that the Registry pipeline of this repository built is deployed.
+      # Only an image that the Registry pipeline of this repository built is deployed. Attestations exist for public
+      # repositories, and for private ones only on GitHub Enterprise Cloud.
       - name: Verify where the image was built
+        if: ${{ !github.event.repository.private }}
         env:
           GH_TOKEN: ${{ github.token }}
           REFERENCE: ${{ steps.resolve.outputs.reference }}
@@ -79,6 +81,10 @@ jobs:
           gh attestation verify "oci://${REFERENCE}" \
             --repo "${GITHUB_REPOSITORY}" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/registry.yml"
+
+      - name: Say that where the image was built is not verified
+        if: ${{ github.event.repository.private }}
+        run: echo "::warning::Artifact attestations need a public repository or GitHub Enterprise Cloud, so where this image was built was not verified."
 
       - name: Summarize the plan
         env:

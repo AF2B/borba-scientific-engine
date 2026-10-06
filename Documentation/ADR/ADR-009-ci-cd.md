@@ -122,6 +122,8 @@ is one `workflow_run` trigger.
 - **Tool versions in the Makefile are updated by hand.** Dependabot covers actions, the Dockerfile and the Compose file,
   not those pins.
 - **`amd64` only.**
+- **Attestations need a public repository.** On a private one (without Enterprise Cloud) the pipelines skip them and say
+  so, and Deploy cannot verify where an image was built.
 - **Registry and Deploy depend on settings that are not code** (protected tags and environments, required reviewers,
   required checks). The deployment guide lists them; a repository without them is less safe than its pipelines suggest.
 

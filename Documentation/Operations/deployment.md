@@ -45,7 +45,9 @@ Only the workflow on the default branch can deploy, and two deployments to one e
 ### What the pipeline guarantees
 
 1. **The image exists and was built by this repository's Registry pipeline.** The version is resolved to a digest, and the
-   GitHub attestation of that digest is verified against the Registry workflow.
+   GitHub attestation of that digest is verified against the Registry workflow. Attestations exist for public repositories
+   and, for private ones, only on GitHub Enterprise Cloud: on a private repository the pipelines skip them with a warning,
+   and nothing verifies where an image was built.
 2. **What is deployed is the digest**, not the tag, so what was verified is what runs even if a tag moves.
 3. **The environment decides who may deploy and with what.** Approvals, allowed branches, secrets and variables belong to
    the GitHub environment, not to the repository.
