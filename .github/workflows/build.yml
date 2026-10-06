@@ -33,11 +33,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve exactly the locked versions
-        run: swift package resolve --force-resolved-versions
-
-      - name: Check that the lockfile is committed and complete
-        run: git diff --exit-code -- Package.resolved
+      # Resolving must change nothing: the lockfile in the repository is the one the manifest needs. Git is not used for the
+      # check because, inside the container, the checkout belongs to another user and git refuses to look at it.
+      - name: Resolve exactly the locked versions, and check that the lockfile did not change
+        run: |
+          locked="$(sha256sum Package.resolved)"
+          swift package resolve --force-resolved-versions
+          test "$(sha256sum Package.resolved)" = "${locked}"
 
   compile:
     name: Compile
