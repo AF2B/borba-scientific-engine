@@ -1,5 +1,9 @@
 # Borba Scientific Engine
 
+[![Test](https://github.com/AF2B/borba-scientific-engine/actions/workflows/test.yml/badge.svg)](https://github.com/AF2B/borba-scientific-engine/actions/workflows/test.yml)
+[![Build](https://github.com/AF2B/borba-scientific-engine/actions/workflows/build.yml/badge.svg)](https://github.com/AF2B/borba-scientific-engine/actions/workflows/build.yml)
+[![Registry](https://github.com/AF2B/borba-scientific-engine/actions/workflows/registry.yml/badge.svg)](https://github.com/AF2B/borba-scientific-engine/actions/workflows/registry.yml)
+
 An extensible **scientific calculation engine** exposed as a versioned HTTP API, built with Swift, Vapor and
 PostgreSQL.
 
@@ -8,10 +12,11 @@ layering, typed errors, structured observability, real-database integration test
 Everything in the repository — code, comments, documentation and commit messages — is written in English.
 
 > **Status:** the engine, the HTTP API, the PostgreSQL history, observability, the container, the pipelines and the
-> deployment tooling are in place and tested. Three things to know before relying on it: the pipelines were validated
-> statically and by running their commands locally but have not yet run on GitHub; no deployment platform is configured; and
-> the API has no authentication or rate limiting, so it belongs behind a gateway (see
-> [security](Documentation/Operations/security.md)). The [changelog](CHANGELOG.md) lists what is available.
+> deployment tooling are in place and tested. The Test, Build and Registry pipelines run on GitHub and pass, and the image is
+> published to the GitHub Container Registry. Two things to know before relying on it: no deployment platform is configured,
+> so the Deploy pipeline has only been rehearsed locally; and the API has no authentication or rate limiting, so it belongs
+> behind a gateway (see [security](Documentation/Operations/security.md)). The [changelog](CHANGELOG.md) lists what is
+> available.
 
 ## Technology
 
@@ -154,12 +159,12 @@ Four GitHub Actions pipelines, each answering one question:
 Every check is a `make` target, so a red pipeline is reproduced with the same command (`make ci`). Branch protection should
 require `Test / Quality gate` and `Build / Build gate`.
 
-**Images** are published to `ghcr.io/<owner>/<repository>` with the tags `latest` and `main` (they move: never deploy them),
+**Images** are published to `ghcr.io/af2b/borba-scientific-engine` with the tags `latest` and `main` (they move: never deploy them),
 `v1.2.3` (immutable; the pipeline refuses to overwrite it), `v1.2` and `sha-<commit>`, with provenance. To run a published
 image instead of building one:
 
 ```bash
-make pull-up PULL_IMAGE=ghcr.io/<owner>/<repository>:main
+make pull-up PULL_IMAGE=ghcr.io/af2b/borba-scientific-engine:main
 ```
 
 **Deployment** has no platform configured: until an environment names a provider, a deployment is refused and a dry run
@@ -179,7 +184,7 @@ See [ADR-009](Documentation/ADR/ADR-009-ci-cd.md) and the [deployment guide](Doc
 ### Run it
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/AF2B/borba-scientific-engine.git
 cd borba-scientific-engine
 make up
 ```

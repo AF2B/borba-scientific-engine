@@ -3,7 +3,7 @@
 ## Set up
 
 ```bash
-git clone <repository-url> && cd borba-scientific-engine
+git clone https://github.com/AF2B/borba-scientific-engine.git && cd borba-scientific-engine
 make setup      # checks the toolchain, creates .env, resolves packages
 make up         # PostgreSQL, the migrations and the API, in containers
 make ci         # everything the pipelines enforce, before you push

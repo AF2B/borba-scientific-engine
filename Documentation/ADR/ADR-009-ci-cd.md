@@ -114,9 +114,11 @@ is one `workflow_run` trigger.
 
 ## Consequences
 
-- **The workflows have not run on GitHub.** The repository had no remote when they were written. They were checked with
-  actionlint and the published JSON schemas, and every command they run was executed locally, but expect small fixes on
-  the first real run (cache keys, a permission, an input name).
+- **The workflows were written before they could run on GitHub.** They were checked with actionlint and the published JSON
+  schemas, and every command they run was executed locally, including in the CI image. Their first run found one failure:
+  the lockfile check used git inside a container whose checkout belongs to another user, so git refused to look at it. With
+  that fixed, Test, Build and Registry pass and the image is published and attested. Deploy has only been rehearsed
+  (`make test-deploy`), because no platform is configured.
 - **Two pipelines compile the project.** Test and Build each need a build tree; caches keyed by the lockfile make that
   cheap after the first run. The Docker build in Registry is the slow one (about eight minutes cold).
 - **Tool versions in the Makefile are updated by hand.** Dependabot covers actions, the Dockerfile and the Compose file,
