@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-05
+
+First release.
+
 ### Added
 
 - Repository foundation: SwiftPM package, Vapor 4 application skeleton and the `borba-scientific-engine` executable.
@@ -100,6 +104,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Architecture decision record for CI/CD and the deployment guide.
 - Security guide with the controls that exist, the assumptions about the gateway the service runs behind and the known gaps
   (authentication, rate limiting, retention and erasure), a vulnerability reporting policy, and an architecture overview.
+- A contributing guide, a technical context document (`CONTEXT.md`), an overview of the dependencies and their licenses, and
+  a checker for relative links and heading anchors in the Markdown documents (`make lint-docs`).
 
 ### Changed
 
@@ -107,6 +113,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   longer builds strings.
 - Rendering a log line is about 30 times faster: redaction inspects keys as bytes instead of lowercasing and splitting
   them.
+- The coverage gate reads an llvm-cov summary of the project's own objects, about a second and 60 KB, instead of parsing a
+  600 MB export that needed 9 GB of memory.
+- Eleven dependency declarations that no target imported were removed.
 
 ### Security
 
@@ -120,3 +129,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Tests that run every calculation operation with hostile parameters (floating-point extremes, empty, oversized and ragged
   collections, malicious text, values of the wrong type) and send hostile requests to the API, requiring that none crashes,
   hangs or answers with a server error.
+
+[Unreleased]: https://github.com/AF2B/borba-scientific-engine/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/AF2B/borba-scientific-engine/releases/tag/v0.1.0
