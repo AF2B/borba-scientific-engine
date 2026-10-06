@@ -146,13 +146,13 @@ expect_ready() {
     fi
 }
 
-# The image under test with one line added to it.
+# The image under test with one setting changed. Committing a container needs no builder, so it works wherever there is a
+# Docker daemon, including a runner whose default builder cannot see the images the daemon holds.
 derive() {
-    local tag="$1" instruction="$2"
-    docker build --quiet --tag "${tag}" - >/dev/null <<EOF
-FROM ${IMAGE}
-${instruction}
-EOF
+    local tag="$1" change="$2" container
+    container="$(docker create "${IMAGE}")"
+    docker commit --change "${change}" "${container}" "${tag}" >/dev/null
+    docker rm "${container}" >/dev/null
 }
 
 docker tag "${IMAGE}" "${NEXT_IMAGE}"
